@@ -37,6 +37,52 @@ html,body,#root{max-width:100%;overflow-x:clip}img{max-width:100%;height:auto}
 
 @media(max-width:540px){.menu-toggle span{display:none}.menu-toggle i{font-size:.78rem;letter-spacing:.08em;text-transform:uppercase}.brand{min-width:0}.brand small{white-space:nowrap;font-size:.62rem}}
 .menu-toggle i{display:block;color:var(--muted)}
+
+/* Final mobile shell: keep the brand, menu and utility actions on one deliberate row. */
+@media(max-width:540px){
+  .site-header{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:.35rem;align-items:center;padding:1rem .85rem;min-height:68px}
+  .site-header .brand{grid-column:1;min-width:0;padding:0!important;gap:.45rem}
+  .site-header .brand img{width:38px;height:38px;flex:none}
+  .site-header .brand b{font-size:1.05rem;line-height:1}
+  .site-header .brand small{font-size:.55rem;letter-spacing:.08em;white-space:nowrap}
+  .site-header .menu-toggle{display:flex!important;position:static!important;grid-column:2;grid-row:1;width:auto;min-width:44px;padding:0;color:#fff8ed;justify-content:center;text-align:center}
+  .site-header .menu-toggle span{display:none!important}
+  .site-header .menu-toggle i{font-size:.66rem;color:inherit;letter-spacing:.04em}
+  .site-header .header-actions{position:static;grid-column:3;grid-row:1;gap:.05rem;margin:0}
+  .site-header .nav-icon-button{width:40px;height:44px}
+  .site-header nav,.site-header nav.open{grid-column:1/-1;grid-row:2;position:absolute;top:100%;left:0;right:0;z-index:1002;margin:0!important;padding:.65rem .85rem 1rem!important;display:none;flex-direction:column;align-items:stretch;gap:.15rem;background:#b9572b;border-top:1px solid rgba(255,248,237,.25);border-bottom:1px solid rgba(255,248,237,.35);box-shadow:0 10px 22px rgba(59,40,29,.16)}
+  .site-header nav.open{display:flex}
+  .site-header nav button,.site-header nav.open button{min-height:44px;padding:.65rem .4rem!important;color:#fff8ed;text-align:left}
+  .site-header nav .cart-link,.site-header nav.open .cart-link{border:0;margin:0;padding:.65rem .4rem!important}
+  .header-search{left:.85rem;right:.85rem;top:calc(100% + 8px);width:auto;display:grid;grid-template-columns:1fr auto;gap:.5rem}
+  .header-search label{grid-column:1/-1}
+  .header-search input{min-width:0;width:100%}
+  .header-search .button{margin:0;min-height:44px}
+  .section{width:100%;padding-left:1rem;padding-right:1rem}
+  .button,.text-button,.quantity button,.remove,.admin-row-actions button,.admin-pagination button{min-height:44px}
+  .quantity button{width:44px;height:44px}
+  .product-meta h3{font-size:1.08rem;overflow-wrap:anywhere}
+  .product-bottom{gap:.4rem;align-items:flex-start;flex-wrap:wrap}
+  .product-bottom small{font-size:.75rem}
+  .checkout-summary,.checkout-details{min-width:0}
+  .checkout-item{grid-template-columns:64px minmax(0,1fr);gap:.7rem}
+  .checkout-item img{width:64px;height:64px}
+  .checkout-item strong{overflow-wrap:anywhere}
+  .admin-content{overflow:hidden;padding-left:1rem;padding-right:1rem}
+  .admin-order-row{min-width:0}
+  .order-row-end{align-items:flex-start;flex-wrap:wrap;gap:.55rem;white-space:normal}
+  .order-row-end select{max-width:100%;min-height:44px}
+  .admin-filters.order-filters{grid-template-columns:1fr!important;max-width:none}
+  .admin-product-form,.admin-upload-primary{min-width:0}
+  .admin-form-actions{gap:.6rem}
+}
+@media(max-width:340px){
+  .site-header .brand small{font-size:.5rem}
+  .site-header .brand b{font-size:.96rem}
+  .site-header .nav-icon-button{width:36px}
+  .site-header .menu-toggle{min-width:40px}
+  .category-grid,.product-grid{gap:.65rem}
+}
 @media(max-width:540px){.menu-toggle{display:flex!important;flex:0 0 auto;min-width:52px;justify-content:flex-end;position:relative;z-index:2}}
 @media(max-width:540px){.site-header .menu-toggle{position:absolute;right:20px;top:24px;display:block!important;width:56px;min-width:56px;padding:0;text-align:right}.site-header .menu-toggle span{display:block!important;color:var(--muted)}}
 @media(max-width:540px){.site-header .menu-toggle{display:none!important}.site-header nav,.site-header nav.open{display:flex;position:static;flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:flex-start;gap:.2rem;margin-top:1rem;padding:0;background:transparent;border:0;box-shadow:none}.site-header nav button,.site-header nav.open button{padding:.55rem .7rem .55rem 0;text-align:left}.site-header nav .cart-link,.site-header nav.open .cart-link{border-left:1px solid var(--line);border-top:0;margin-left:.35rem;margin-top:0;padding-top:.55rem;padding-left:.7rem!important}}
@@ -191,6 +237,201 @@ body{background-color:var(--ivory);background-image:url('/assets/paper-texture.p
 .hero-copy{align-self:start;padding-top:clamp(2.5rem,5vw,5rem);padding-bottom:0;}
 @media(max-width:850px){.hero-copy{align-self:start;padding-top:1rem;padding-bottom:2.5rem;}}
 @media(max-width:540px){.hero-copy{padding-top:.5rem;padding-bottom:2rem;}}
+
+/* Mobile hero: keep the copy and the existing lantern artwork in one balanced composition. */
+@media(max-width:540px){
+  .hero{grid-template-columns:minmax(0,1.85fr) minmax(92px,1fr);gap:.45rem;align-items:center;min-height:0;padding-top:.6rem;padding-bottom:2.25rem}
+  .hero-art{order:initial;min-height:0;height:auto;margin-top:0;align-self:center;justify-items:end;overflow:visible}
+  .hero-art img{display:block;width:100%;height:auto;max-height:230px;object-fit:contain;object-position:center;transform:none;animation:floatLanternMobile 6s ease-in-out infinite}
+  .hero-copy{min-width:0;align-self:center;padding:.25rem 0 0}
+  .hero-copy .section-label{font-size:.62rem;line-height:1.35;margin-bottom:.7rem;max-width:17ch}
+  .hero-copy h1{font-size:clamp(2.3rem,10.5vw,3.45rem);line-height:.94;max-width:8ch;margin-bottom:1rem}
+  .hero-copy .lede{font-size:.88rem;line-height:1.5;margin-top:0;max-width:30ch}
+  .hero-copy .button{width:100%;justify-content:center;padding:.78rem .55rem;margin-top:1rem;font-size:.82rem;white-space:nowrap}
+}
+@keyframes floatLanternMobile{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+@media(max-width:340px){
+  .hero{grid-template-columns:minmax(0,1.9fr) minmax(78px,.85fr);gap:.25rem;padding-left:.85rem;padding-right:.85rem}
+  .hero-art img{max-height:185px}
+  .hero-copy h1{font-size:clamp(2.15rem,10.2vw,2.8rem)}
+  .hero-copy .lede{font-size:.82rem}
+  .hero-copy .button{font-size:.76rem;padding-left:.35rem;padding-right:.35rem}
+}
+@media(prefers-reduced-motion:reduce){.hero-art img{animation:none}}
+
+/* Compact mobile design system: the desktop composition remains unchanged. */
+@media(max-width:540px){
+  :root{--mobile-pad:clamp(1rem,4.5vw,1.25rem);--mobile-section-y:clamp(2rem,8vw,2.75rem);--mobile-gap:clamp(.65rem,3vw,.9rem)}
+  body{font-size:14px}
+  h1{font-size:clamp(2.3rem,10.5vw,3.45rem);line-height:.96;margin-bottom:1rem}
+  h2{font-size:clamp(1.8rem,7.5vw,2.45rem);line-height:1;margin-bottom:.85rem}
+  h3{font-size:1.12rem;line-height:1.08}
+  .section{padding:var(--mobile-section-y) var(--mobile-pad);}
+  .section-label,.eyebrow{font-size:.62rem;letter-spacing:.1em;margin-bottom:.65rem}
+  .lede{font-size:.92rem;line-height:1.55}
+  .button{font-size:.82rem;line-height:1.2;padding:.72rem .9rem;margin-top:.85rem;min-height:42px}
+  .text-button{font-size:.82rem;margin-top:.7rem;min-height:40px}
+  .site-header{min-height:60px;padding:.7rem var(--mobile-pad)}
+  .site-header .brand img{width:32px;height:32px}
+  .site-header .brand b{font-size:.98rem}
+  .site-header .brand small{font-size:.5rem;letter-spacing:.06em}
+  .site-header .nav-icon-button{width:36px;height:40px}
+  .site-header .nav-icon-button svg{width:18px;height:18px}
+  .site-header .menu-toggle{min-width:40px;font-size:.62rem}
+  .hero{padding-top:.35rem;padding-bottom:1.6rem;gap:.35rem}
+  .hero-copy .section-label{font-size:.56rem;margin-bottom:.5rem}
+  .hero-copy h1{font-size:clamp(2.15rem,10vw,3.1rem);margin-bottom:.75rem}
+  .hero-copy .lede{font-size:.82rem;line-height:1.45}
+  .hero-copy .button{font-size:.75rem;min-height:40px;margin-top:.75rem}
+  .hero-art img{max-height:195px}
+  .intro{padding-top:var(--mobile-section-y);padding-bottom:var(--mobile-section-y);gap:1.25rem}
+  .intro p:last-child{font-size:.9rem;line-height:1.55}
+  .category-grid{padding-top:var(--mobile-section-y);padding-bottom:var(--mobile-section-y);gap:.8rem}
+  .category-tile img{margin-bottom:.55rem}
+  .category-tile span{font-size:.9rem;line-height:1.1}
+  .category-tile small{font-size:.68rem;margin-top:.25rem}
+  .feature-band{padding:var(--mobile-section-y) var(--mobile-pad);min-height:0}
+  .feature-band h2{font-size:clamp(2rem,8vw,2.7rem)}
+  .feature-band p:not(.section-label){font-size:.9rem;line-height:1.55}
+  .featured{padding-top:var(--mobile-section-y);padding-bottom:var(--mobile-section-y)}
+  .featured .product-grid{margin-top:1.25rem}
+  .product-grid{gap:var(--mobile-gap)}
+  .product-image{aspect-ratio:1/.92}
+  .product-meta{padding:.65rem 0}
+  .product-meta .eyebrow{margin-bottom:.25rem}
+  .product-meta h3{font-size:1rem;min-height:2.15em;margin:.2rem 0}
+  .product-bottom{font-size:.82rem}
+  .product-bottom small{font-size:.68rem}
+  .card-actions{gap:.35rem}
+  .card-actions .card-action{font-size:.72rem;min-height:38px;margin-top:.55rem;padding:.45rem .25rem}
+  .page-heading{padding-bottom:1.25rem}
+  .page-heading>p{font-size:.86rem;line-height:1.5}
+  .products-page .toolbar{gap:.55rem;padding:1rem 0 1.25rem;margin-bottom:1.5rem}
+  .products-page .toolbar input,.products-page .toolbar select{min-height:40px;padding:.55rem 0;font-size:.84rem}
+  .detail-page{padding-top:1.5rem}
+  .detail-grid{gap:1.5rem;margin-top:1.25rem}
+  .detail-copy{padding-top:0}
+  .detail-copy h1{font-size:clamp(2.35rem,10vw,3.4rem)}
+  .detail-copy .price-large{font-size:1.25rem;margin:1rem 0}
+  .detail-copy .lede{font-size:.9rem}
+  .verification{margin:1.2rem 0;padding:.75rem 0;font-size:.84rem}
+  .cart-layout,.checkout-layout{gap:1.25rem;margin-top:1.25rem}
+  .cart-item{grid-template-columns:58px minmax(0,1fr);gap:.65rem;padding:.75rem 0}
+  .cart-item img{width:58px;height:58px}
+  .cart-item h3{font-size:1rem;margin:.1rem 0}
+  .cart-item p{font-size:.7rem}
+  .remove{font-size:.72rem;min-height:38px;padding:0}
+  .quantity{gap:.45rem;margin-top:.35rem}
+  .quantity button{width:36px;height:36px;min-height:36px}
+  .summary,.checkout-summary,.checkout-details{padding:1rem}
+  .summary h2,.checkout-summary h2,.checkout-details h2{font-size:1.45rem;margin-bottom:.85rem}
+  .summary>div{padding:.5rem 0;font-size:.86rem}
+  .checkout-item{grid-template-columns:58px minmax(0,1fr);gap:.65rem;padding:.7rem 0}
+  .checkout-item img{width:58px;height:58px}
+  .checkout-item strong{font-size:.94rem}
+  .checkout-item span{font-size:.74rem}
+  .checkout-form{gap:.7rem;margin-top:.75rem}
+  .checkout-form label,.contact-form label{font-size:.78rem;gap:.25rem}
+  .checkout-form input,.checkout-form textarea,.contact-form input,.contact-form textarea{padding:.62rem .7rem;font-size:.86rem}
+  .checkout-two-column{gap:.7rem}
+  .payment-choice{padding-top:.7rem;gap:.45rem}
+  .payment-choice label{padding:.6rem;font-size:.8rem}
+  .payment-choice label span{font-size:.72rem}
+  .success-state{padding:1rem;margin-top:1rem}
+  .payment-actions{gap:.45rem}
+  .payment-actions .button{min-height:40px}
+  .editorial,.contact-page{gap:1.5rem;margin-top:1.25rem}
+  .editorial p,.contact-form{font-size:.9rem;line-height:1.55}
+  .site-footer{padding:2rem var(--mobile-pad) 2.5rem;gap:1.25rem}
+  .site-footer img{width:38px}
+  .site-footer>div:first-child p{font-size:1.05rem}
+  .site-footer button{font-size:.82rem;margin:.35rem 0;min-height:36px}
+  .footer-note{font-size:.8rem}
+  .profile-auth,.profile-page{padding-top:1.75rem}
+  .profile-auth-form{gap:.7rem;margin:1.25rem 0 1rem;padding:1rem}
+  .profile-overview{gap:.75rem;margin:1rem 0;padding:1rem 0}
+  .profile-avatar{width:54px;height:54px;font-size:1.15rem}
+  .profile-panel{padding:1rem}
+  .profile-panel-heading h2{font-size:1.5rem}
+  .profile-order{gap:.5rem;padding:.75rem 0;font-size:.78rem}
+  .address-card{padding:.75rem 0;font-size:.8rem}
+  .admin-content{padding:1rem var(--mobile-pad) 1.5rem}
+  .admin-content .admin-header{padding-bottom:1rem}
+  .admin-content .admin-header h1{font-size:clamp(2.2rem,10vw,3rem);margin-bottom:.6rem}
+  .admin-stat{padding:.8rem;min-height:82px}
+  .admin-stat span{font-size:.68rem}
+  .admin-stat strong{font-size:1.55rem}
+  .admin-quick-actions{gap:.45rem;margin:1rem 0 1.75rem}
+  .admin-section-heading{margin:1.25rem 0 .8rem}
+  .admin-section-heading h2{font-size:1.55rem}
+  .admin-order-row{padding:.8rem 0;font-size:.8rem}
+  .admin-order-row small{font-size:.7rem}
+  .order-row-end{font-size:.75rem;margin-top:.55rem}
+  .admin-product-form{padding:.85rem;margin-bottom:1.5rem}
+  .admin-form-grid{gap:.65rem}
+  .admin-form-grid label,.admin-upload label{font-size:.74rem}
+  .admin-form-grid input,.admin-form-grid select,.admin-form-grid textarea,.admin-filters select,.admin-filters input{padding:.6rem .65rem;font-size:.82rem;min-height:40px}
+  .admin-product-row{padding:.8rem;gap:.35rem}
+  .admin-row-actions{gap:.35rem}
+  .admin-row-actions button{font-size:.72rem;min-height:38px}
+}
+@media(max-width:340px){
+  .section{padding-left:.85rem;padding-right:.85rem}
+  .site-header{padding-left:.85rem;padding-right:.65rem}
+  .hero-art img{max-height:170px}
+  .product-meta h3{font-size:.92rem}
+  .card-actions .card-action{font-size:.68rem}
+}
+
+/* Admin mobile drawer: isolate the sidebar from the dashboard with a real backdrop. */
+@media(max-width:720px){
+  body.admin-menu-open{overflow:hidden}
+  .admin-shell{position:relative;isolation:isolate;min-height:100vh;z-index:auto}
+  body.admin-menu-open .admin-shell{z-index:2000}
+  .admin-workspace{position:relative;z-index:1;width:100%;min-width:0}
+  .admin-sidebar{z-index:30;top:0;bottom:0;height:100vh;height:100dvh;max-height:100dvh;overflow-y:auto;overscroll-behavior:contain;box-shadow:18px 0 40px rgba(45,29,20,.2);background:#ebe7df!important;opacity:1}
+  .admin-menu-open .admin-workspace::before{content:"";position:fixed;inset:0;z-index:20;background:rgba(31,29,25,.62);pointer-events:auto}
+  .admin-content{position:relative;z-index:1;width:100%;min-width:0;overflow-x:hidden}
+  .admin-topbar{position:relative;z-index:2;background:var(--paper)}
+  .admin-content .admin-stat-grid{grid-template-columns:repeat(2,minmax(0,1fr));width:100%;gap:1px}
+  .admin-content .admin-stat{min-width:0;min-height:92px;padding:12px}
+  .admin-content .admin-stat span,.admin-content .admin-stat strong{overflow-wrap:anywhere}
+  .admin-content .admin-quick-actions{display:grid;grid-template-columns:1fr;gap:.55rem;width:100%;margin:1rem 0 1.75rem}
+  .admin-content .admin-quick-actions .button{width:100%;min-height:44px;margin:0;justify-content:center}
+  .admin-sidebar-footer{min-width:0}
+  .admin-sidebar-footer strong{max-width:190px}
+}
+@media(max-width:360px){
+  .admin-content .admin-stat-grid{grid-template-columns:1fr}
+  .admin-content .admin-stat{min-height:70px}
+}
+
+/* Storefront mobile navbar: compact two-row header, with the full nav kept visible. */
+@media(max-width:540px){
+  .site-header{display:grid!important;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:48px 38px;align-items:center;gap:0;padding:6px var(--mobile-pad) 4px;min-height:92px}
+  .site-header .brand{grid-column:1;grid-row:1;padding:0!important;min-width:0;gap:.45rem}
+  .site-header .brand img{width:30px;height:30px}
+  .site-header .brand b{font-size:1rem;line-height:1}
+  .site-header .brand small{font-size:.5rem;letter-spacing:.06em;white-space:nowrap}
+  .site-header .menu-toggle{display:none!important}
+  .site-header .header-actions{grid-column:2;grid-row:1;position:static!important;display:flex;align-items:center;gap:0;margin:0}
+  .site-header .nav-icon-button{width:36px;height:40px}
+  .site-header .nav-icon-button svg{width:18px;height:18px}
+  .site-header nav,.site-header nav.open{grid-column:1/-1;grid-row:2;position:static!important;display:flex!important;flex-direction:row;align-items:center;justify-content:space-between;gap:0;width:100%;min-width:0;margin:0!important;padding:0!important;background:transparent!important;border:0!important;box-shadow:none!important;overflow:hidden;white-space:nowrap}
+  .site-header nav button,.site-header nav.open button{flex:0 0 auto;min-height:36px;padding:.35rem .15rem!important;color:#fff8ed;text-align:center;font-size:.78rem;font-weight:650;line-height:1}
+  .site-header nav button.active,.site-header nav.open button.active{background:transparent!important;color:#fff8ed;position:relative}
+  .site-header nav button.active::after{content:"";position:absolute;left:15%;right:15%;bottom:1px;height:2px;background:#f0c98e}
+  .site-header nav .cart-link,.site-header nav.open .cart-link{border:0!important;margin:0;padding:.35rem .15rem!important}
+  .site-header nav .cart-link span{width:15px;height:15px;font-size:.58rem}
+  .header-search{left:var(--mobile-pad);right:var(--mobile-pad);top:calc(100% + 6px);width:auto}
+}
+@media(max-width:350px){
+  .site-header{grid-template-columns:minmax(0,1fr) auto;padding-left:.75rem;padding-right:.6rem}
+  .site-header .brand b{font-size:.92rem}
+  .site-header .brand small{font-size:.45rem}
+  .site-header .nav-icon-button{width:32px}
+  .site-header nav button,.site-header nav.open button{font-size:.7rem}
+}
 
 /* Let the lantern chains visually enter the header without duplicating or moving the header. */
 .hero-art{margin-top:-72px;}

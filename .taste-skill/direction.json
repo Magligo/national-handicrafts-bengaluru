@@ -1,0 +1,222 @@
+{
+ "version": 1,
+ "kind": "app",
+ "at": "2026-10-22T06:09:56.276Z",
+ "seed": 905953345,
+ "input": {
+  "kind": "commerce",
+  "brief": "National Handicrafts Bengaluru admin portal for verified product catalogue and customer orders",
+  "theme": "light",
+  "screens": [
+   "overview",
+   "list",
+   "detail",
+   "settings"
+  ],
+  "keep": [
+   "palette",
+   "type"
+  ],
+  "style": "framed-sheet"
+ },
+ "style": {
+  "id": "framed-sheet",
+  "name": "Framed sheet",
+  "theme": "light",
+  "basis": "6 screens: a developer platform overview, an analytics overview, an events analytics tab, a list detail, a reports dashboard, a flow builder",
+  "suits": [
+   "analytics",
+   "devtools",
+   "builder",
+   "smb-admin",
+   "support",
+   "commerce",
+   "report"
+  ],
+  "idea": "The app chrome is one tinted L-shaped frame; the work sits on a white sheet with a hairline edge and soft corners, so depth comes from a single tone step and no shadow.",
+  "colourBudget": "under 3%; the brand shrinks to the logo and a 2px tab underline, the data carries the chroma",
+  "tokens": {
+   "ground": "#f9fbfc",
+   "surface": "#ffffff",
+   "raised": "#f4f6f8",
+   "active": "#ebedee",
+   "border": "#e8eaec",
+   "rule": "#f0f1f2",
+   "control": "#cdced1",
+   "text": "#131416",
+   "muted": "#5d5f60",
+   "accent": "#1b6c80",
+   "positive": "#1e7b4f",
+   "negative": "#c4242a",
+   "warning": "#92400e",
+   "chart": [
+    "#1b6c80",
+    "#2f70bb",
+    "#a86f0c"
+   ],
+   "pills": {
+    "positive": [
+     "#dcfae5",
+     "#04250e"
+    ],
+    "negative": [
+     "#ffedea",
+     "#831c1e"
+    ],
+    "warning": [
+     "#fffbeb",
+     "#92400e"
+    ],
+    "neutral": [
+     "#ebedee",
+     "#353736"
+    ]
+   },
+   "radius": {
+    "card": 8,
+    "control": 6,
+    "sheet": 16
+   },
+   "sheetInset": 8,
+   "font": {
+    "family": "IBM Plex Sans",
+    "second": "IBM Plex Mono, for IDs and keys only",
+    "fallback": "Inter, system-ui, sans-serif",
+    "sizes": {
+     "title": 22,
+     "section": 16,
+     "kpi": 28,
+     "body": 14,
+     "small": 12
+    },
+    "weights": [
+     400,
+     500,
+     600
+    ],
+    "note": "KPI values at 400; the semibold goes on the label and the active tab."
+   },
+   "density": "medium",
+   "rowHeight": 48,
+   "sidebarWidth": 228,
+   "gap": 24,
+   "pad": 24,
+   "controlHeight": 32
+  },
+  "shell": "framed-sheet",
+  "shellAlternatives": [],
+  "signature": "One tinted frame holds the sidebar and the 48px top bar with no rule between them; the page is a white sheet inset 8px from the window's right and bottom edges, with a 1px edge, 16px corners and no shadow. The active tab is a 2px underline in ink or the accent; everything else in the chrome is grey.",
+  "identity": [
+   "The frame tinted from the product's colour in place of #f9fbfc: one low-chroma step of its hue (a green-grey for a climate or farm tool, a blue-grey for an observability tool, a stone for a print shop). The sheet stays white.",
+   "The brand's own hue from the brief as --chart-1 in place of the dealt teal, on the main series and the one selected state, at 3:1 or more on white, never violet or indigo.",
+   "IBM Plex Mono for IDs, keys and the figures in tables (one job): its figures have their own drawing, and a developer reads them as the product's."
+  ],
+  "avoid": [
+   "a border between the sidebar and the top bar",
+   "a shadow under the sheet",
+   "cards whose border is heavier than the sheet's (#cdcfcf on cards read as heavy in the study)",
+   "a fourth nesting level: frame, sheet and card are enough",
+   "different gutters for the KPI row and the chart row (20 against 24 was flagged)"
+  ],
+  "notes": "The study's second data hue in this style was an orange (#e88e46) that falls inside the house terracotta range; the third chart colour here is an amber moved out of that range and darkened to 3:1 on white."
+ },
+ "shell": {
+  "id": "framed-sheet",
+  "name": "Tinted frame, white sheet",
+  "basis": "8 of 23 screens, in three variants",
+  "suits": [
+   "analytics",
+   "devtools",
+   "builder",
+   "smb-admin",
+   "support"
+  ],
+  "numbers": {
+   "chrome": "#f6f6f6-#f9fbfc (a warm #f7f6f2 once)",
+   "sheetInset": "8px from the window's right and bottom edges (12 and 16 once each)",
+   "sheetRadius": "10-16, median 16",
+   "sheetEdge": "1px #eaeaea-#ededed, no shadow",
+   "sidebarWidth": "220-263 (228 on two screens)",
+   "topBar": "48px on the chrome ground with no rule; search 548x32 centred on the window with a shortcut hint",
+   "contentPadding": 24,
+   "floatingVariant": "both panels inset 12px with a 12px gutter, radius 10"
+  },
+  "blueprint": "Sidebar and top bar share one tinted ground with no rule between them, forming an L; the page lives on a white sheet. Variant one: the sheet butts against the sidebar and the top bar and is inset 8px from the right and bottom edges, 16px radius, 1px edge. Variant two: a flush L-frame with no inset, the frame marked by one rule. Variant three: sidebar and content are two floating panels inset 12px from every edge with a 12px gutter. The top bar, when present, is 48px and holds a centred search, the account button and a help or AI icon. Inside the sheet the content has 24px padding and starts with the breadcrumb or title row.",
+  "phone": "The frame disappears: the sheet becomes the screen, with a 48px top bar (menu button, title, one action) on the chrome tint. The search moves into the menu sheet or behind an icon."
+ },
+ "screens": [
+  {
+   "name": "overview",
+   "pattern": {
+    "id": "kpi-tabs-chart",
+    "name": "KPIs as the chart's tabs",
+    "screen": "overview",
+    "kinds": [
+     "finance",
+     "commerce"
+    ],
+    "basis": "a seller home",
+    "blueprint": "One card per subject, 8-16px apart: the main chart card runs full width, and any card holding a table of five columns or fewer, or a short list, pairs with its neighbour in two columns, the page header indented by the card padding so the title, the card titles, the numbers and the plot share one left edge. Balances that do not change during the day go first, in one container split by 1px dividers into equal columns; a zero balance is grey and its caption becomes the next step. In the main card, 2-4 KPIs sit in a row and act as the chart's series tabs: the selected one carries a 2px rule and an ink label, the others keep a grey label and their value in ink at a lighter weight (a grey value reads as disabled); when the tabs are the per-entity breakdown the brief asks for (takings by shop), nothing is greyed and the rule alone marks the selection. Choosing one swaps the series. Under them, one line chart as wide as the card's content (about 1136x220 in the study): 3-4 solid 1px gridlines, 4-6 round y ticks at 12px, a 2-3px line in ink with straight segments and no fill, an 8px hover dot with a 1px dashed guide and the line after the cursor in pale grey. Close with a 2-3 row comparison table on a 36px pitch, value and change columns right-aligned under a 14px grey header such as 'vs prior Monday'.",
+    "phone": "KPI tabs become a 2-up grid above the chart, with the selected cell marked by a fill (never an underline floating inside the grid) or a row of tabs that scrolls sideways; the chart is full width, 160-200px tall, with 4 x labels; the comparison table keeps its two right-aligned columns."
+   }
+  },
+  {
+   "name": "list",
+   "pattern": {
+    "id": "count-cards-filter",
+    "name": "Count cards that filter",
+    "screen": "list",
+    "kinds": [
+     "community",
+     "commerce",
+     "support"
+    ],
+    "basis": "an events back office",
+    "blueprint": "Above a list, 3-5 equal count cards (61px tall, 12px padding, a 13px grey label over a 16/600 value, 8px gap) are the type filter: the selected card gets a 1.5px accent border and a pale accent fill, and the list below shows that type only. Zero counts print as '0' in the same style; no deltas, no icons. This is one place where a row of identical small cards is right: the cards are peers and each one does work.",
+    "phone": "The count cards become a horizontally scrolling row of chips with the count inside each, or a select above the list."
+   }
+  },
+  {
+   "name": "detail",
+   "pattern": {
+    "id": "object-detail-header-grid",
+    "name": "Object header and a six-column grid",
+    "screen": "detail",
+    "kinds": [
+     "community",
+     "commerce",
+     "analytics"
+    ],
+    "basis": "an event's analytics tab",
+    "blueprint": "The page header is the object itself: one card (88px, 14px padding) holding a 50x62 cover, the 18/600 name with 28px icon buttons beside it (open, copy, share), a 13px grey meta line (date, time, place) and outlined 36px actions on the right. Under it, underline tabs on a full-width 1px rule, then a 36px row with a segmented time range on the left and a refresh button on the right. The body is one 6-column grid with one gutter (14px) in both directions whose spans change by row while every edge lands on the same lines: 3 KPI tiles of 2 columns, the main chart in 4 columns beside a side chart in 2, two progress cards of 3, a full-width trend of 6. Give the widest card to the screen's question, and do not give 824px to one ring and one legend row (flagged).",
+    "phone": "The header card keeps cover, name and meta, with actions in a kebab; every grid item takes the full width in the same order."
+   }
+  },
+  {
+   "name": "settings",
+   "pattern": {
+    "id": "settings-two-column",
+    "name": "Settings in two columns",
+    "screen": "settings",
+    "kinds": [
+     "devtools",
+     "smb-admin",
+     "support",
+     "workspace",
+     "commerce",
+     "analytics",
+     "finance",
+     "wallet",
+     "creator",
+     "community",
+     "builder",
+     "markets",
+     "report"
+    ],
+    "basis": "one settings page; stacking from a narrow rail card. The basis is thin.",
+    "blueprint": "A centred column of about 1152px. Each section is one row: a label column of about 450px (16/500 title, 14px grey description; the title's cap top 6-8px below the panel top, level with the panel's first line) beside a panel of about 700px with a #fafafa fill, 16px radius, 16px padding, no border and no shadow. Sections are split by a full-width 1px rule with 32px above and below. Inside a panel: field labels 14/500 above 40px white inputs (1px #e8e8e8, radius 10), 8px from label to field, 16px between fields, 24px from the description to the first label, 16px to the Save button; switch rows with a 14/500 title, a 20px status badge 8px after it, a 14px grey description and a 28x16 toggle 16px from the right edge, centred on the title line. A plan-gated feature shows a 48px tinted strip with a 32px button directly above its panel, and the panel stays readable. When a panel runs much taller than its label, put the section's help or a summary of the current values in the label column rather than 250px of nothing.",
+    "phone": "Each section stacks: title and description, then the panel at full width. Inside, label, 8-10px, field, 16-26px to the next pair; toggles stay on the right of their title."
+   }
+  }
+ ]
+}

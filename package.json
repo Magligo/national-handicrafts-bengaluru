@@ -1,0 +1,35 @@
+{
+  "name": "national-handicrafts-bengaluru",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "server": "node --env-file-if-exists=.env server/index.js",
+    "server:dev": "node --env-file-if-exists=.env server/index.js",
+    "server:watch": "node --env-file-if-exists=.env --watch server/index.js",
+    "server:prod": "node --env-file=.env server/index.js",
+    "test": "node server/app.test.js",
+    "check": "vite build"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "latest",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
+    "express": "latest",
+    "multer": "^2.4.0",
+    "pg": "^8.23.1",
+    "qrcode": "^1.5.4",
+    "react": "latest",
+    "react-dom": "latest",
+    "supertest": "^7.3.1",
+    "vite": "latest"
+  },
+  "devDependencies": {
+    "autoprefixer": "^10.4.21",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.17"
+  }
+}

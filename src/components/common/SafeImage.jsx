@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-export default function SafeImage({ src, alt, className = '' }) {
+export default function SafeImage({ src, alt, className = '', loading = 'lazy', fetchPriority = 'auto', width, height }) {
   const resolvedSrc = alt === 'Open brass vessel reference' ? '/assets/hanging-brass-lanterns.png' : src;
   const [imageSrc, setImageSrc] = useState(resolvedSrc);
 
@@ -9,6 +9,11 @@ export default function SafeImage({ src, alt, className = '' }) {
       className={className}
       src={imageSrc || '/assets/heritage-emblem.png'}
       alt={alt === 'Open brass vessel reference' ? 'Handcrafted brass hanging lanterns' : alt}
+      loading={loading}
+      fetchPriority={fetchPriority}
+      decoding="async"
+      width={width}
+      height={height}
       onError={() => setImageSrc('/assets/heritage-emblem.png')}
     />
   );

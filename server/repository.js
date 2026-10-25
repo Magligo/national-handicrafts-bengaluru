@@ -15,6 +15,7 @@ export class MemoryRepository {
   async findOrderByIdempotencyKey(key) { return key ? this.orders.find((order) => order.idempotency_key === key) || null : null; }
   async createOrder(order) { const saved = { id: `NH-${Date.now()}-${randomUUID().slice(0, 6)}`, shipping_inr: 0, ...order, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }; this.orders.unshift(saved); return saved; }
   async findCustomer(email) { return this.customers.find((u) => u.email.toLowerCase() === email.toLowerCase()) || null; }
+  async findCustomerByGoogleId(googleId) { return this.customers.find((u) => u.google_id === googleId) || null; }
   async createCustomer(input) { const customer = { id: randomUUID(), ...input, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }; this.customers.push(customer); return customer; }
   async getCustomer(id) { return this.customers.find((customer) => customer.id === id) || null; }
   async updateCustomer(id, input) { const customer = await this.getCustomer(id); if (!customer) return null; Object.assign(customer, input, { updated_at: new Date().toISOString() }); return customer; }
@@ -31,7 +32,14 @@ export class MemoryRepository {
 }
 
 export class PostgresRepository {
-  constructor(connectionString = process.env.DATABASE_URL) { this.pool = new Pool({ connectionString }); }
+  constructor(connectionString = process.env.DATABASE_URL) {
+    this.pool = new Pool({
+      connectionString,
+      max: Number(process.env.PG_POOL_MAX || 5),
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 10000,
+    });
+  }
   async query(text, values) { return this.pool.query(text, values); }
   async listProducts({ admin = false, q = '', category = '' } = {}) { const visibility = admin ? '' : 'AND active = TRUE AND verification_status = \'verified\''; const r = await this.query(`SELECT * FROM products WHERE 1=1 ${visibility} AND ($1 = '' OR name ILIKE $2 OR category ILIKE $2 OR COALESCE(sku, '') ILIKE $2) AND ($3 = '' OR category = $3) ORDER BY name`, [q.trim(), `%${q.trim()}%`, category]); return r.rows; }
   async getProduct(id) { const r = await this.query('SELECT * FROM products WHERE id = $1', [id]); return r.rows[0] || null; }
@@ -43,7 +51,8 @@ export class PostgresRepository {
   async createOrder(order) { const client = await this.pool.connect(); try { await client.query('BEGIN'); const r = await client.query('INSERT INTO orders (customer_id, customer, items, subtotal_inr, shipping_inr, total_inr, payment_method, payment_status, payment_reference, idempotency_key, status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *', [order.customer_id || null, order.customer, JSON.stringify(order.items), order.subtotal_inr, order.shipping_inr || 0, order.total_inr, order.payment_method, order.payment_status, order.payment_reference, order.idempotency_key, order.status]); await client.query('COMMIT'); return r.rows[0]; } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); } }
   async listOrders() { return (await this.query('SELECT * FROM orders ORDER BY created_at DESC')).rows; }
   async findCustomer(email) { const r = await this.query('SELECT * FROM customers WHERE email = $1', [email.toLowerCase()]); return r.rows[0] || null; }
-  async createCustomer(input) { const r = await this.query('INSERT INTO customers (email,password_hash,name) VALUES ($1,$2,$3) RETURNING *', [input.email.toLowerCase(), input.password_hash, input.name]); return r.rows[0]; }
+  async findCustomerByGoogleId(googleId) { const r = await this.query('SELECT * FROM customers WHERE google_id = $1', [googleId]); return r.rows[0] || null; }
+  async createCustomer(input) { const r = await this.query('INSERT INTO customers (email,password_hash,name,google_id,avatar_url) VALUES ($1,$2,$3,$4,$5) RETURNING *', [input.email.toLowerCase(), input.password_hash || null, input.name, input.google_id || null, input.avatar_url || null]); return r.rows[0]; }
   async getCustomer(id) { const r = await this.query('SELECT * FROM customers WHERE id = $1', [id]); return r.rows[0] || null; }
   async updateCustomer(id, input) { const keys = Object.keys(input).filter((key) => ['name', 'phone', 'address', 'city', 'state', 'pin'].includes(key)); if (!keys.length) return this.getCustomer(id); const sets = keys.map((key, i) => `${key}=$${i + 1}`).join(', '); const r = await this.query(`UPDATE customers SET ${sets},updated_at=NOW() WHERE id=$${keys.length + 1} RETURNING *`, [...keys.map((key) => input[key]), id]); return r.rows[0] || null; }
   async listCustomerOrders(customerId) { return (await this.query('SELECT * FROM orders WHERE customer_id = $1 ORDER BY created_at DESC', [customerId])).rows; }
@@ -60,10 +69,7 @@ export class PostgresRepository {
 export function createRepository() {
   const useMemory = process.env.USE_IN_MEMORY_DB === 'true';
   const hasDatabase = Boolean(process.env.DATABASE_URL);
-  if (useMemory || (!hasDatabase && process.env.NODE_ENV !== 'production')) {
-    if (!useMemory && !hasDatabase) console.warn('DATABASE_URL is not set; using the in-memory repository for local development.');
-    return new MemoryRepository();
-  }
-  if (!hasDatabase) throw new Error('DATABASE_URL is required in production.');
+  if (useMemory) return new MemoryRepository();
+  if (!hasDatabase) throw new Error('DATABASE_URL is required when USE_IN_MEMORY_DB is false.');
   return new PostgresRepository();
 }

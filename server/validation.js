@@ -40,6 +40,7 @@ export function validateOrder(body) {
   if (!/^\S+@\S+\.\S+$/.test(customer.email || '')) throw new Error('A valid email is required');
   if (!/^\+?[0-9 ()-]{7,20}$/.test(customer.phone || '')) throw new Error('A valid mobile number is required');
   for (const [key, label, max] of [['address', 'Delivery address', 500], ['city', 'City', 100], ['state', 'State', 100]]) if (!customer[key] || customer[key].trim().length > max) throw new Error(`${label} is required`);
+  if (customer.district && customer.district.trim().length > 100) throw new Error('District is too long');
   if (!/^\d{6}$/.test(customer.pin || '')) throw new Error('A valid 6-digit PIN code is required');
   if (customer.instructions && customer.instructions.length > 500) throw new Error('Delivery instructions are too long');
   if (!Array.isArray(body.items) || !body.items.length) throw new Error('At least one item is required');

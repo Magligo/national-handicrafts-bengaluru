@@ -3,6 +3,7 @@ export const serverConfig = {
   frontendOrigin: process.env.FRONTEND_ORIGIN || 'http://localhost:5173',
   adminSessionSecret: process.env.ADMIN_SESSION_SECRET,
   customerSessionSecret: process.env.CUSTOMER_SESSION_SECRET,
+  googleClientId: process.env.GOOGLE_CLIENT_ID,
 };
 
 export function paymentConfig() {

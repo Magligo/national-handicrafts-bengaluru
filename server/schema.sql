@@ -37,8 +37,10 @@ CREATE TABLE IF NOT EXISTS products (
 CREATE TABLE IF NOT EXISTS customers (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   email TEXT UNIQUE NOT NULL,
-  password_hash TEXT NOT NULL,
+  password_hash TEXT,
   name TEXT NOT NULL,
+  google_id TEXT UNIQUE,
+  avatar_url TEXT,
   phone TEXT,
   address TEXT,
   city TEXT,

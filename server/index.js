@@ -22,4 +22,4 @@ if (process.env.USE_IN_MEMORY_DB !== 'true') {
 }
 
 const { app } = createApp();
-app.listen(serverConfig.port, () => console.log(`National Handicrafts API listening on http://localhost:${serverConfig.port}`));
+app.listen(serverConfig.port, serverConfig.host, () => console.log(`National Handicrafts API listening on port ${serverConfig.port}`));

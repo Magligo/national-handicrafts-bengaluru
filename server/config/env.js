@@ -1,5 +1,6 @@
 export const serverConfig = {
   port: Number(process.env.PORT || 4000),
+  host: process.env.HOST || '0.0.0.0',
   frontendOrigin: process.env.FRONTEND_ORIGIN || 'http://localhost:5173',
   adminSessionSecret: process.env.ADMIN_SESSION_SECRET,
   customerSessionSecret: process.env.CUSTOMER_SESSION_SECRET,

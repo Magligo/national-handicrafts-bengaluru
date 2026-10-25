@@ -7,7 +7,7 @@ import { MemoryRepository } from './repository.js';
 
 async function setup(role = 'admin') {
   const repo = new MemoryRepository({ adminUsers: [{ id: 'a1', email: 'admin@test.local', password_hash: await bcrypt.hash('correct horse battery staple', 10), role }] });
-  const { app } = createApp({ repo, secret: 'test-secret' });
+  const { app } = createApp({ repo, secret: 'test-secret', imageUploader: async (file) => ({ url: `test-upload://${file.originalname}` }) });
   return { app, repo };
 }
 

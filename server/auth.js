@@ -12,7 +12,7 @@ function sign(value, secret) { return `${value}.${createHmac('sha256', secret).u
 function verify(token, secret) { const [value, sig] = String(token || '').split('.'); if (!value || !sig) return null; const expected = createHmac('sha256', secret).update(value).digest('base64url'); const actual = Buffer.from(sig); const expectedBuffer = Buffer.from(expected); return actual.length === expectedBuffer.length && timingSafeEqual(actual, expectedBuffer) ? value : null; }
 function parseCookies(header = '') { return Object.fromEntries(header.split(';').filter(Boolean).map((part) => { const [key, ...value] = part.trim().split('='); return [key, value.join('=')]; })); }
 function sameSecret(a, b) { const left = Buffer.from(String(a || '')); const right = Buffer.from(String(b || '')); return left.length === right.length && left.length > 0 && timingSafeEqual(left, right); }
-function cookieAttributes({ httpOnly = false, maxAge = 28800 } = {}) { const crossSite = process.env.NODE_ENV === 'production'; return `${httpOnly ? '; HttpOnly' : ''}; SameSite=${crossSite ? 'None' : 'Lax'}; Path=/; Max-Age=${maxAge}${crossSite ? '; Secure' : ''}`; }
+function cookieAttributes({ httpOnly = false, maxAge = 28800 } = {}) { const frontendOrigin = String(process.env.FRONTEND_ORIGIN || '').trim(); const crossSite = process.env.NODE_ENV === 'production' || (/^https:\/\//i.test(frontendOrigin) && !/https:\/\/localhost(?::\d+)?$/i.test(frontendOrigin)); return `${httpOnly ? '; HttpOnly' : ''}; SameSite=${crossSite ? 'None' : 'Lax'}; Path=/; Max-Age=${maxAge}${crossSite ? '; Secure' : ''}`; }
 function environmentAdminCredentials() {
   const email = String(process.env.ADMIN_EMAIL || '').trim();
   const passwordHash = String(process.env.ADMIN_PASSWORD_HASH || '').trim();

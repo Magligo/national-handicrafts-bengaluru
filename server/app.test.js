@@ -351,6 +351,22 @@ test('production customer sessions allow credentialed Vercel-to-Render requests'
   }
 });
 
+test('HTTPS frontend origin enables cross-site customer cookies even without NODE_ENV', async () => {
+  const previousNodeEnv = process.env.NODE_ENV;
+  const previousFrontendOrigin = process.env.FRONTEND_ORIGIN;
+  delete process.env.NODE_ENV;
+  process.env.FRONTEND_ORIGIN = 'https://national-handicrafts-bengaluru.vercel.app';
+  try {
+    const { app } = createApp({ repo: new MemoryRepository(), secret: 'test-secret' });
+    const response = await request(app).post('/api/customer/auth/register').send({ name: 'Cross Site', email: 'cross-site-no-env@example.com', password: 'customer-password' });
+    assert.equal(response.status, 201);
+    assert.ok(response.headers['set-cookie'].every((cookie) => /SameSite=None/.test(cookie) && /Secure/.test(cookie)));
+  } finally {
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = previousNodeEnv;
+    if (previousFrontendOrigin === undefined) delete process.env.FRONTEND_ORIGIN; else process.env.FRONTEND_ORIGIN = previousFrontendOrigin;
+  }
+});
+
 test('customer registration and login create a separate authenticated session', async () => {
   const { app } = createApp({ repo: new MemoryRepository(), secret: 'test-secret' });
   const registered = await request(app).post('/api/customer/auth/register').send({ name: 'Asha Rao', email: 'asha@example.com', password: 'customer-password' });

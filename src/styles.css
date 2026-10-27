@@ -1386,12 +1386,13 @@ button:focus-visible, a:focus-visible, [role="button"]:focus-visible, summary:fo
 }
 .site-header .header-search label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .site-header .header-search-icon { display: grid; place-items: center; width: 42px; height: 42px; flex: 0 0 42px; color: var(--muted); }
-.site-header .header-search-icon svg, .site-header .header-search-submit svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.site-header .header-search-icon svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .site-header .header-search input { min-width: 0; width: 100%; height: 42px; flex: 1; padding: .55rem .2rem; border: 0; background: transparent; color: var(--ink); outline: none; font-size: .84rem; }
 .site-header .header-search input::placeholder { color: var(--muted); opacity: .95; }
-.site-header .header-search-submit, .site-header .header-search-clear { display: grid; place-items: center; width: 42px; height: 42px; flex: 0 0 42px; padding: 0; color: var(--terracotta); }
+.site-header .header-search-clear { display: grid; place-items: center; width: 42px; height: 42px; flex: 0 0 42px; padding: 0; color: var(--muted); }
 .site-header .header-search-clear { color: var(--muted); font-size: 1.2rem; }
-.site-header .header-search-submit:hover, .site-header .header-search-submit:focus-visible, .site-header .header-search-clear:hover, .site-header .header-search-clear:focus-visible { background: rgba(184,92,50,.1); }
+.site-header .header-search-submit { display: none; }
+.site-header .header-search-clear:hover, .site-header .header-search-clear:focus-visible { background: rgba(184,92,50,.1); }
 .site-header nav { order: 3; flex: 0 0 auto; }
 .site-header .header-actions { order: 4; }
 .site-header .menu-toggle { order: 3; }
@@ -1440,7 +1441,7 @@ button:focus-visible, a:focus-visible, [role="button"]:focus-visible, summary:fo
 @media (max-width: 540px) {
   .site-header { padding-inline: .85rem; }
   .site-header .header-search input { font-size: .76rem; }
-  .site-header .header-search-icon, .site-header .header-search-submit, .site-header .header-search-clear { width: 38px; flex-basis: 38px; }
+  .site-header .header-search-icon, .site-header .header-search-clear { width: 38px; flex-basis: 38px; }
   .catalogue-results-bar { display: block; }
   .catalogue-results-bar span { display: block; margin-top: .25rem; text-align: left; }
 }

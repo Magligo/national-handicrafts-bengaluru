@@ -10,7 +10,7 @@ test('resolves relative product images against the Render asset origin', () => {
 });
 
 test('preserves absolute image URLs', () => {
-  assert.equal(resolveImageUrl('https://res.cloudinary.com/example/image/upload/product.png', 'https://example.com'), 'https://res.cloudinary.com/example/image/upload/product.png');
+  assert.equal(resolveImageUrl('https://res.cloudinary.com/national-handicrafts/image/upload/product.png', 'https://national-handicrafts-bengaluru.onrender.com'), 'https://res.cloudinary.com/national-handicrafts/image/upload/product.png');
 });
 
 test('uses a neutral fallback instead of the brand logo', () => {

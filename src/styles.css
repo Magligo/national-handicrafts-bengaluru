@@ -1262,6 +1262,8 @@ button:focus-visible, a:focus-visible, [role="button"]:focus-visible, summary:fo
 
 .google-signin { display: flex; justify-content: center; min-height: 44px; margin: 1rem 0; }
 .google-signin > div { max-width: 100%; }
+.google-signin-unavailable { display: block; }
+.google-config-button { width: 100%; min-height: 44px; border: 1px solid var(--line); background: var(--paper); color: var(--muted); cursor: not-allowed; }
 .auth-divider { display: flex; align-items: center; gap: .75rem; margin: .9rem 0; color: var(--muted); font-size: .72rem; }
 .auth-divider::before, .auth-divider::after { content: ''; flex: 1; height: 1px; background: var(--line); }
 .profile-auth > .text-button { margin-right: .8rem; }

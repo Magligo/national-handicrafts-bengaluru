@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { NEUTRAL_IMAGE_FALLBACK } from '../../services/image.js';
 
 export default function SafeImage({ src, alt, className = '', loading = 'lazy', fetchPriority = 'auto', width, height }) {
   const resolvedSrc = alt === 'Open brass vessel reference' ? '/assets/hanging-brass-lanterns.png' : src;
@@ -7,14 +8,14 @@ export default function SafeImage({ src, alt, className = '', loading = 'lazy', 
   return (
     <img
       className={className}
-      src={imageSrc || '/assets/heritage-emblem.png'}
+      src={imageSrc || NEUTRAL_IMAGE_FALLBACK}
       alt={alt === 'Open brass vessel reference' ? 'Handcrafted brass hanging lanterns' : alt}
       loading={loading}
       fetchPriority={fetchPriority}
       decoding="async"
       width={width}
       height={height}
-      onError={() => setImageSrc('/assets/heritage-emblem.png')}
+      onError={() => setImageSrc(NEUTRAL_IMAGE_FALLBACK)}
     />
   );
 }

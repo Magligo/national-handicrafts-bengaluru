@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { API, API_ORIGIN } from './config/api.js';
+import { API, ASSET_ORIGIN } from './config/api.js';
 
 const categories = ['Brass', 'Copper', 'Puja Articles', 'Dining & Thali Sets', 'Decorative Handicrafts'];
 const statuses = ['all', 'pending', 'verified', 'rejected'];
@@ -9,7 +9,7 @@ const blankForm = { name: '', sku: '', category: 'Brass', description: '', price
 async function request(path, options = {}) { const response = await fetch(`${API}${path}`, { credentials: 'include', ...options }); let body = null; try { body = response.status === 204 ? null : await response.json(); } catch { body = null; } if (!response.ok) throw new Error(body?.error || 'Request failed'); return body; }
 function formatPrice(value) { return value == null ? 'Price on request' : `₹${Number(value).toLocaleString('en-IN')}`; }
 function productStatus(product) { if (product.active && product.verification_status === 'verified') return 'published'; if (product.verification_status === 'pending') return product.active ? 'pending review' : 'draft'; return 'rejected'; }
-function imageSource(path) { return path?.startsWith('/uploads') ? `${API_ORIGIN}${path}` : path; }
+function imageSource(path) { return path?.startsWith('/uploads') ? `${ASSET_ORIGIN}${path}` : path; }
 
 export default function AdminPortal({ refresh }) {
   const [user, setUser] = useState(null); const [csrf, setCsrf] = useState(''); const [authState, setAuthState] = useState('loading'); const [message, setMessage] = useState({ type: '', text: '' });

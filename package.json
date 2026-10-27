@@ -12,7 +12,8 @@
     "server:dev": "node --env-file-if-exists=.env server/index.js",
     "server:watch": "node --env-file-if-exists=.env --watch server/index.js",
     "server:prod": "node --env-file=.env server/index.js",
-    "test": "node server/app.test.js",
+    "migrate:images": "node tools/migrate-product-images.js",
+    "test": "node --input-type=module -e \"await import('./server/app.test.js'); await import('./src/services/image.test.js')\"",
     "check": "vite build"
   },
   "dependencies": {

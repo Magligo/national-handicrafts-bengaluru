@@ -1,6 +1,7 @@
-import { API, API_ORIGIN } from '../config/api.js';
+import { API, API_ORIGIN, ASSET_ORIGIN } from '../config/api.js';
+import { NEUTRAL_IMAGE_FALLBACK, resolveImageUrl } from './image.js';
 
-export { API, API_ORIGIN };
+export { API, API_ORIGIN, ASSET_ORIGIN };
 
 /** Perform a same-origin-capable API request and return the parsed response body. */
 export async function api(path, options = {}) {
@@ -48,7 +49,7 @@ export async function authenticateAccount({ email, password }) {
 }
 
 export function imageUrl(path) {
-  return path?.startsWith('/uploads') ? `${API_ORIGIN}${path}` : path;
+  return path ? resolveImageUrl(path, ASSET_ORIGIN) : NEUTRAL_IMAGE_FALLBACK;
 }
 
 export function formatPrice(price) {

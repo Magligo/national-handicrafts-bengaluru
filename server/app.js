@@ -11,6 +11,7 @@ import { productInput, validateOrder, customerRegistrationInput, customerProfile
 import { paymentConfig, serverConfig } from './config/env.js';
 import { createRateLimit } from './middleware/rateLimit.js';
 import { uploadProductImage } from './storage/cloudinary.js';
+import { OAuth2Client } from 'google-auth-library';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const deployedFrontendOrigin = 'https://national-handicrafts-bengaluru.vercel.app';
@@ -20,9 +21,24 @@ function removeUploadedFiles(product) { const paths = [...new Set([product?.imag
 function publicError(error) { if (error?.code === 'LIMIT_FILE_SIZE') return 'Each image must be 5 MB or smaller'; if (error?.code === 'LIMIT_FILE_COUNT') return 'You can upload up to 8 images'; if (/Only image files/i.test(error?.message || '')) return error.message; if (/required|must be|between|one of|valid JSON|positive whole|Insufficient stock|No valid products|configured|duplicate|price|Google sign-in/i.test(error?.message || '')) return error.message; return 'Request failed'; }
 async function uploadProductImages(files, uploader) { return Promise.all(files.map(async (file) => (await uploader(file)).url)); }
 function publicCustomer(customer) { if (!customer) return null; return { id: customer.id, email: customer.email, name: customer.name, avatar_url: customer.avatar_url || '', phone: customer.phone || '', address: customer.address || '', city: customer.city || '', state: customer.state || '', pin: customer.pin || '', created_at: customer.created_at, updated_at: customer.updated_at }; }
-async function verifyGoogleCredential(credential, clientId) { if (!clientId) throw new Error('Google sign-in is not configured'); if (!credential) throw new Error('Google sign-in credential is missing'); const response = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`); if (!response.ok) throw new Error('Google sign-in could not be verified'); const token = await response.json(); const verifiedEmail = token.email_verified === true || token.email_verified === 'true'; if (token.aud !== clientId || !['https://accounts.google.com', 'accounts.google.com'].includes(token.iss) || !verifiedEmail || Number(token.exp) * 1000 <= Date.now()) throw new Error('Google sign-in could not be verified'); if (!token.sub || !token.email) throw new Error('Google account details are incomplete'); return { google_id: token.sub, email: token.email, name: token.name || token.email.split('@')[0], avatar_url: token.picture || null }; }
+export function validateGoogleIdentity(payload, clientId, now = Date.now()) {
+  if (!payload || payload.aud !== clientId || !['https://accounts.google.com', 'accounts.google.com'].includes(payload.iss) || payload.email_verified !== true || !payload.sub || !payload.email || !Number.isFinite(Number(payload.exp)) || Number(payload.exp) * 1000 <= now) throw new Error('Google sign-in could not be verified');
+  return { google_id: payload.sub, email: payload.email.toLowerCase(), name: payload.name || payload.email.split('@')[0], avatar_url: payload.picture || null };
+}
 
-export function createApp({ repo = createRepository(), secret = serverConfig.adminSessionSecret, corsOrigin = serverConfig.frontendOrigin, imageUploader = uploadProductImage } = {}) {
+async function verifyGoogleCredential(credential, clientId) {
+  if (!clientId) throw new Error('Google sign-in is not configured');
+  if (!credential) throw new Error('Google sign-in credential is missing');
+  try {
+    const ticket = await new OAuth2Client(clientId).verifyIdToken({ idToken: credential, audience: clientId });
+    return validateGoogleIdentity(ticket.getPayload(), clientId);
+  } catch (error) {
+    if (error?.message === 'Google sign-in could not be verified') throw error;
+    throw new Error('Google sign-in could not be verified');
+  }
+}
+
+export function createApp({ repo = createRepository(), secret = serverConfig.adminSessionSecret, corsOrigin = serverConfig.frontendOrigin, imageUploader = uploadProductImage, googleVerifier = verifyGoogleCredential, googleClientId = serverConfig.googleClientId } = {}) {
   if (process.env.NODE_ENV === 'production' && !secret) throw new Error('ADMIN_SESSION_SECRET is required in production');
   if (process.env.NODE_ENV === 'production' && !process.env.FRONTEND_ORIGIN) throw new Error('FRONTEND_ORIGIN is required in production');
   const sessionSecret = secret || 'local-only-change-me';
@@ -49,7 +65,7 @@ export function createApp({ repo = createRepository(), secret = serverConfig.adm
   const customerMutation = requireCustomer(customerSessionSecret, { csrf: true });
   app.post('/api/customer/auth/register', customerLoginRateLimit, async (req, res, next) => { try { const input = customerRegistrationInput(req.body); if (await repo.findCustomer(input.email)) return res.status(409).json({ error: 'An account with this email already exists' }); const saved = await repo.createCustomer({ email: input.email, password_hash: await bcrypt.hash(input.password, 12), name: input.name }); const user = { id: saved.id, email: saved.email, role: 'customer' }; setCustomerSession(res, user, customerSessionSecret); res.status(201).json({ data: publicCustomer(saved) }); } catch (e) { next(e); } });
   app.post('/api/customer/auth/login', customerLoginRateLimit, async (req, res, next) => { try { const user = await authenticateCustomer(String(req.body?.email || '').trim(), String(req.body?.password || ''), repo); if (!user) return res.status(401).json({ error: 'Invalid customer credentials' }); const saved = await repo.getCustomer(user.id); setCustomerSession(res, user, customerSessionSecret); res.json({ data: publicCustomer(saved) }); } catch (e) { next(e); } });
-  app.post('/api/customer/auth/google', customerLoginRateLimit, async (req, res, next) => { try { const identity = await verifyGoogleCredential(String(req.body?.credential || ''), serverConfig.googleClientId); let saved = await repo.findCustomerByGoogleId(identity.google_id); if (!saved) saved = await repo.findCustomer(identity.email); if (saved && saved.google_id && saved.google_id !== identity.google_id) return res.status(409).json({ error: 'This email is linked to another sign-in method. Use your existing email and password.' }); if (!saved) saved = await repo.createCustomer({ ...identity, password_hash: null }); const user = { id: saved.id, email: saved.email, role: 'customer' }; setCustomerSession(res, user, customerSessionSecret); res.json({ data: publicCustomer(saved) }); } catch (e) { console.warn(`[google-auth] ${e.message}`); next(e); } });
+  app.post('/api/customer/auth/google', customerLoginRateLimit, async (req, res, next) => { try { const identity = await googleVerifier(String(req.body?.credential || ''), googleClientId); let saved = await repo.findCustomerByGoogleId(identity.google_id); if (!saved) { const emailAccount = await repo.findCustomer(identity.email); if (emailAccount) return res.status(409).json({ error: 'An account with this email already exists. Sign in with your existing email and password before linking Google.' }); saved = await repo.createCustomer({ ...identity, password_hash: null }); } const user = { id: saved.id, email: saved.email, role: 'customer' }; setCustomerSession(res, user, customerSessionSecret); res.json({ data: publicCustomer(saved) }); } catch (e) { console.warn(`[google-auth] ${e.message}`); next(e); } });
   app.post('/api/customer/auth/logout', customerMutation, (_req, res) => { clearCustomerSession(res); res.status(204).end(); });
   app.get('/api/customer/auth/me', customer, async (req, res, next) => { try { const saved = await repo.getCustomer(req.customer.id); if (!saved) return res.status(401).json({ error: 'Customer account not found' }); res.json({ data: publicCustomer(saved) }); } catch (e) { next(e); } });
   app.get('/api/customer/auth/csrf', customer, getCustomerCsrfToken);

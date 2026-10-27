@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import request from 'supertest';
 import bcrypt from 'bcryptjs';
-import { createApp } from './app.js';
+import { createApp, validateGoogleIdentity } from './app.js';
 import { MemoryRepository } from './repository.js';
 
 async function setup(role = 'admin') {
@@ -302,6 +302,53 @@ test('allows the deployed storefront origin while keeping other origins out', as
   assert.equal(allowed.headers['access-control-allow-origin'], 'https://national-handicrafts-bengaluru.vercel.app');
   assert.equal(blocked.status, 200);
   assert.equal(blocked.headers['access-control-allow-origin'], undefined);
+});
+
+test('validates Google issuer, audience, verified email, subject and expiry claims', () => {
+  const now = Date.now();
+  const valid = { aud: 'google-client', iss: 'https://accounts.google.com', email_verified: true, sub: 'google-sub-1', email: 'GoogleUser@Example.com', name: 'Google User', exp: Math.floor(now / 1000) + 60 };
+  assert.deepEqual(validateGoogleIdentity(valid, 'google-client', now), { google_id: 'google-sub-1', email: 'googleuser@example.com', name: 'Google User', avatar_url: null });
+  assert.throws(() => validateGoogleIdentity({ ...valid, exp: Math.floor(now / 1000) - 1 }, 'google-client', now), /could not be verified/);
+  assert.throws(() => validateGoogleIdentity({ ...valid, aud: 'another-client' }, 'google-client', now), /could not be verified/);
+  assert.throws(() => validateGoogleIdentity({ ...valid, email_verified: false }, 'google-client', now), /could not be verified/);
+});
+
+test('Google sign-in does not auto-link an existing password account', async () => {
+  const repo = new MemoryRepository({ customers: [{ id: 'c1', email: 'asha@example.com', password_hash: 'not-used', name: 'Asha Rao' }] });
+  const { app } = createApp({ repo, secret: 'test-secret', googleClientId: 'google-client', googleVerifier: async () => ({ google_id: 'google-sub-1', email: 'asha@example.com', name: 'Asha Rao', avatar_url: null }) });
+  const response = await request(app).post('/api/customer/auth/google').send({ credential: 'verified-by-test-double' });
+  assert.equal(response.status, 409);
+  assert.match(response.body.error, /already exists/i);
+  assert.equal(repo.customers[0].google_id, undefined);
+});
+
+test('Google sign-in creates and reuses a provider identity without a password', async () => {
+  const repo = new MemoryRepository();
+  const { app } = createApp({ repo, secret: 'test-secret', googleClientId: 'google-client', googleVerifier: async () => ({ google_id: 'google-sub-2', email: 'bina@example.com', name: 'Bina Das', avatar_url: 'https://lh3.googleusercontent.com/avatar' }) });
+  const first = await request(app).post('/api/customer/auth/google').send({ credential: 'verified-by-test-double' });
+  const second = await request(app).post('/api/customer/auth/google').send({ credential: 'verified-by-test-double' });
+  assert.equal(first.status, 200);
+  assert.equal(second.status, 200);
+  assert.equal(repo.customers.length, 1);
+  assert.equal(repo.customers[0].password_hash, null);
+  assert.equal(repo.customers[0].google_id, 'google-sub-2');
+  assert.ok(first.headers['set-cookie'].some((cookie) => cookie.startsWith('nh_customer_token=')));
+});
+
+test('production customer sessions allow credentialed Vercel-to-Render requests', async () => {
+  const previousNodeEnv = process.env.NODE_ENV;
+  const previousFrontendOrigin = process.env.FRONTEND_ORIGIN;
+  process.env.NODE_ENV = 'production';
+  process.env.FRONTEND_ORIGIN = 'https://national-handicrafts-bengaluru.vercel.app';
+  try {
+    const { app } = createApp({ repo: new MemoryRepository(), secret: 'test-secret' });
+    const response = await request(app).post('/api/customer/auth/register').send({ name: 'Cross Site', email: 'cross-site@example.com', password: 'customer-password' });
+    assert.equal(response.status, 201);
+    assert.ok(response.headers['set-cookie'].every((cookie) => /SameSite=None/.test(cookie) && /Secure/.test(cookie)));
+  } finally {
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = previousNodeEnv;
+    if (previousFrontendOrigin === undefined) delete process.env.FRONTEND_ORIGIN; else process.env.FRONTEND_ORIGIN = previousFrontendOrigin;
+  }
 });
 
 test('customer registration and login create a separate authenticated session', async () => {

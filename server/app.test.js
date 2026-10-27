@@ -294,6 +294,16 @@ test('empty in-memory catalogue is a successful empty response', async () => {
   assert.deepEqual(products.body, { data: [] });
 });
 
+test('allows the deployed storefront origin while keeping other origins out', async () => {
+  const { app } = createApp({ repo: new MemoryRepository(), secret: 'test-secret', corsOrigin: 'http://localhost:5173' });
+  const allowed = await request(app).get('/api/products').set('Origin', 'https://national-handicrafts-bengaluru.vercel.app');
+  const blocked = await request(app).get('/api/products').set('Origin', 'https://example.com');
+  assert.equal(allowed.status, 200);
+  assert.equal(allowed.headers['access-control-allow-origin'], 'https://national-handicrafts-bengaluru.vercel.app');
+  assert.equal(blocked.status, 200);
+  assert.equal(blocked.headers['access-control-allow-origin'], undefined);
+});
+
 test('customer registration and login create a separate authenticated session', async () => {
   const { app } = createApp({ repo: new MemoryRepository(), secret: 'test-secret' });
   const registered = await request(app).post('/api/customer/auth/register').send({ name: 'Asha Rao', email: 'asha@example.com', password: 'customer-password' });

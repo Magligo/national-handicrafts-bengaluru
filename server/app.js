@@ -13,6 +13,7 @@ import { createRateLimit } from './middleware/rateLimit.js';
 import { uploadProductImage } from './storage/cloudinary.js';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
+const deployedFrontendOrigin = 'https://national-handicrafts-bengaluru.vercel.app';
 const storage = multer.memoryStorage();
 const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024, files: 8 }, fileFilter: (_req, file, cb) => /^image\/(jpeg|png|webp)$/.test(file.mimetype) ? cb(null, true) : cb(new Error('Only JPEG, PNG, and WebP images are allowed')) });
 function removeUploadedFiles(product) { const paths = [...new Set([product?.image_path, ...(product?.image_paths || [])].filter((value) => typeof value === 'string' && value.startsWith('/uploads/')))]; for (const publicPath of paths) { try { fs.unlinkSync(path.join(root, '..', 'public', publicPath.replace(/^\//, ''))); } catch { /* stale or already removed upload */ } } }
@@ -30,7 +31,8 @@ export function createApp({ repo = createRepository(), secret = serverConfig.adm
   const adminLoginRateLimit = createRateLimit({ message: 'Too many failed admin login attempts. Try again later.' });
   const customerLoginRateLimit = createRateLimit({ message: 'Too many failed account login attempts. Try again later.' });
   const orderRateLimit = createRateLimit();
-  app.use(cors({ origin: corsOrigin, credentials: true }));
+  const allowedOrigins = new Set([corsOrigin, deployedFrontendOrigin].filter(Boolean));
+  app.use(cors({ origin: (origin, callback) => callback(null, !origin || allowedOrigins.has(origin)), credentials: true }));
   app.use(express.json({ limit: '1mb' }));
   app.use('/uploads', express.static(path.join(root, '..', 'public', 'uploads')));
   app.get('/api/health', (_req, res) => res.json({ ok: true, service: 'national-handicrafts-api' }));

@@ -12,6 +12,8 @@ export class MemoryRepository {
   async updateProduct(id, input) { const p = await this.getProduct(id); if (!p) return null; Object.assign(p, input, { updated_at: new Date().toISOString() }); return p; }
   async deleteProduct(id) { const before = this.products.length; this.products = this.products.filter((p) => p.id !== id); return this.products.length < before; }
   async findAdmin(email) { return this.adminUsers.find((u) => u.email.toLowerCase() === email.toLowerCase()) || null; }
+  async findAdminById(id) { return this.adminUsers.find((u) => u.id === id) || null; }
+  async updateAdminPassword(id, passwordHash) { const user = await this.findAdminById(id); if (!user) return null; user.password_hash = passwordHash; user.session_version = Number(user.session_version || 0) + 1; return user; }
   async findOrderByIdempotencyKey(key) { return key ? this.orders.find((order) => order.idempotency_key === key) || null : null; }
   async createOrder(order) { const saved = { id: `NH-${Date.now()}-${randomUUID().slice(0, 6)}`, shipping_inr: 0, ...order, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }; this.orders.unshift(saved); return saved; }
   async findCustomer(email) { return this.customers.find((u) => u.email.toLowerCase() === email.toLowerCase()) || null; }
@@ -47,6 +49,8 @@ export class PostgresRepository {
   async updateProduct(id, p) { const safeKeys = Object.keys(p).filter((key) => productFields.includes(key)); if (!safeKeys.length) return this.getProduct(id); const sets = safeKeys.map((key, i) => `${key} = $${i + 1}`).join(', '); const values = safeKeys.map((key) => ['variants', 'image_paths'].includes(key) ? JSON.stringify(p[key] || []) : p[key]); const r = await this.query(`UPDATE products SET ${sets}, updated_at = NOW() WHERE id = $${safeKeys.length + 1} RETURNING *`, [...values, id]); return r.rows[0] || null; }
   async deleteProduct(id) { const r = await this.query('DELETE FROM products WHERE id = $1', [id]); return r.rowCount > 0; }
   async findAdmin(email) { const r = await this.query('SELECT * FROM admin_users WHERE email = $1', [email.toLowerCase()]); return r.rows[0] || null; }
+  async findAdminById(id) { const r = await this.query('SELECT * FROM admin_users WHERE id = $1', [id]); return r.rows[0] || null; }
+  async updateAdminPassword(id, passwordHash) { const r = await this.query('UPDATE admin_users SET password_hash = $1, session_version = session_version + 1 WHERE id = $2 RETURNING *', [passwordHash, id]); return r.rows[0] || null; }
   async findOrderByIdempotencyKey(key) { if (!key) return null; const r = await this.query('SELECT * FROM orders WHERE idempotency_key = $1', [key]); return r.rows[0] || null; }
   async createOrder(order) { const client = await this.pool.connect(); try { await client.query('BEGIN'); const r = await client.query('INSERT INTO orders (customer_id, customer, items, subtotal_inr, shipping_inr, total_inr, payment_method, payment_status, payment_reference, idempotency_key, status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *', [order.customer_id || null, order.customer, JSON.stringify(order.items), order.subtotal_inr, order.shipping_inr || 0, order.total_inr, order.payment_method, order.payment_status, order.payment_reference, order.idempotency_key, order.status]); await client.query('COMMIT'); return r.rows[0]; } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); } }
   async listOrders() { return (await this.query('SELECT * FROM orders ORDER BY created_at DESC')).rows; }

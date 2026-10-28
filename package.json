@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "start": "node server/index.js",
     "server": "node --env-file-if-exists=.env server/index.js",
-    "server:dev": "node --env-file-if-exists=.env --watch server/index.js",
+    "server:dev": "node --env-file-if-exists=.env server/index.js",
     "server:watch": "node --env-file-if-exists=.env --watch server/index.js",
     "server:prod": "node --env-file=.env server/index.js",
     "migrate:images": "node tools/migrate-product-images.js",

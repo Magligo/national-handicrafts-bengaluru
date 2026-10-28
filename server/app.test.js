@@ -351,6 +351,7 @@ test('allows the deployed storefront and local development origins while keeping
   assert.equal(allowed.status, 200);
   assert.equal(allowed.headers['access-control-allow-origin'], 'https://national-handicrafts-bengaluru.vercel.app');
   assert.equal(local5173.headers['access-control-allow-origin'], 'http://localhost:5173');
+  assert.ok(Array.isArray(local5174.body.data));
   assert.equal(local5174.headers['access-control-allow-origin'], 'http://localhost:5174');
   assert.equal(local5174.headers['access-control-allow-credentials'], 'true');
   assert.equal(local5174Preflight.status, 204);

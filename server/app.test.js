@@ -378,6 +378,38 @@ test('does not add local development origins to the production CORS allowlist', 
   }
 });
 
+test('allows only this project’s Vercel preview origins with credentialed product and preflight requests', async () => {
+  const previousNodeEnv = process.env.NODE_ENV;
+  const previousFrontendOrigin = process.env.FRONTEND_ORIGIN;
+  process.env.NODE_ENV = 'production';
+  process.env.FRONTEND_ORIGIN = 'https://national-handicrafts-bengaluru.vercel.app';
+  try {
+    const { app } = createApp({ repo: new MemoryRepository(), secret: 'test-secret', corsOrigin: 'https://national-handicrafts-bengaluru.vercel.app' });
+    const production = await request(app).get('/api/products').set('Origin', 'https://national-handicrafts-bengaluru.vercel.app');
+    const previewOrigin = 'https://national-handicrafts-bengaluru-2yfi2l39r-magligo.vercel.app';
+    const preview = await request(app).get('/api/products').set('Origin', previewOrigin);
+    const preflight = await request(app).options('/api/products').set('Origin', previewOrigin).set('Access-Control-Request-Method', 'GET').set('Access-Control-Request-Headers', 'content-type');
+    const otherProject = await request(app).get('/api/products').set('Origin', 'https://other-project-2yfi2l39r-magligo.vercel.app');
+    const otherScope = await request(app).get('/api/products').set('Origin', 'https://national-handicrafts-bengaluru-2yfi2l39r-other.vercel.app');
+    const arbitraryVercel = await request(app).get('/api/products').set('Origin', 'https://national-handicrafts-bengaluru-2yfi2l39r-magligo.vercel.app.attacker.test');
+
+    assert.equal(production.headers['access-control-allow-origin'], 'https://national-handicrafts-bengaluru.vercel.app');
+    assert.equal(preview.status, 200);
+    assert.ok(Array.isArray(preview.body.data));
+    assert.equal(preview.headers['access-control-allow-origin'], previewOrigin);
+    assert.equal(preview.headers['access-control-allow-credentials'], 'true');
+    assert.equal(preflight.status, 204);
+    assert.equal(preflight.headers['access-control-allow-origin'], previewOrigin);
+    assert.equal(preflight.headers['access-control-allow-credentials'], 'true');
+    assert.equal(otherProject.headers['access-control-allow-origin'], undefined);
+    assert.equal(otherScope.headers['access-control-allow-origin'], undefined);
+    assert.equal(arbitraryVercel.headers['access-control-allow-origin'], undefined);
+  } finally {
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = previousNodeEnv;
+    if (previousFrontendOrigin === undefined) delete process.env.FRONTEND_ORIGIN; else process.env.FRONTEND_ORIGIN = previousFrontendOrigin;
+  }
+});
+
 test('validates Google issuer, audience, verified email, subject and expiry claims', () => {
   const now = Date.now();
   const valid = { aud: 'google-client', iss: 'https://accounts.google.com', email_verified: true, sub: 'google-sub-1', email: 'GoogleUser@Example.com', name: 'Google User', exp: Math.floor(now / 1000) + 60 };

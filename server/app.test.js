@@ -149,26 +149,26 @@ test('session persists through auth/me and logout clears it', async () => {
 test('admin password change verifies the current password, invalidates sessions, and accepts the new password', async () => {
   const { app, repo } = await setup();
   const auth = await signIn(app);
-  const rejected = await adminRequest(app, auth, 'post', '/api/auth/password').send({ currentPassword: 'not-the-current-password', newPassword: 'a secure new administrator password' });
+  const rejected = await adminRequest(app, auth, 'post', '/api/auth/password').send({ currentPassword: 'not-the-current-password', newPassword: 'newpass8' });
   assert.equal(rejected.status, 401);
   assert.equal((await request(app).get('/api/auth/me').set('Cookie', auth.cookie)).status, 200);
 
-  const changed = await adminRequest(app, auth, 'post', '/api/auth/password').send({ currentPassword: 'correct horse battery staple', newPassword: 'a secure new administrator password' });
+  const changed = await adminRequest(app, auth, 'post', '/api/auth/password').send({ currentPassword: 'correct horse battery staple', newPassword: 'newpass8' });
   assert.equal(changed.status, 204);
   assert.equal(repo.adminUsers[0].role, 'admin');
   assert.equal(repo.adminUsers[0].email, 'admin@test.local');
   assert.equal(repo.adminUsers[0].session_version, 1);
-  assert.equal(await bcrypt.compare('a secure new administrator password', repo.adminUsers[0].password_hash), true);
+  assert.equal(await bcrypt.compare('newpass8', repo.adminUsers[0].password_hash), true);
   assert.equal((await request(app).get('/api/auth/me').set('Cookie', auth.cookie)).status, 401);
   assert.equal((await request(app).post('/api/auth/login').send({ email: 'admin@test.local', password: 'correct horse battery staple' })).status, 401);
-  assert.equal((await request(app).post('/api/auth/login').send({ email: 'admin@test.local', password: 'a secure new administrator password' })).status, 200);
+  assert.equal((await request(app).post('/api/auth/login').send({ email: 'admin@test.local', password: 'newpass8' })).status, 200);
 });
 
 test('admin password change validates the new password before modifying the account', async () => {
   const { app, repo } = await setup();
   const auth = await signIn(app);
   const originalHash = repo.adminUsers[0].password_hash;
-  const response = await adminRequest(app, auth, 'post', '/api/auth/password').send({ currentPassword: 'correct horse battery staple', newPassword: 'too-short' });
+  const response = await adminRequest(app, auth, 'post', '/api/auth/password').send({ currentPassword: 'correct horse battery staple', newPassword: 'short7!' });
   assert.equal(response.status, 400);
   assert.equal(repo.adminUsers[0].password_hash, originalHash);
   assert.equal(repo.adminUsers[0].session_version || 0, 0);

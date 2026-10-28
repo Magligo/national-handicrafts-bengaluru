@@ -535,7 +535,7 @@ html{scroll-behavior:smooth;}
 @media(max-width:540px){.variant-editor-heading{align-items:flex-start;flex-direction:column}.variant-row{grid-template-columns:1fr 1fr}.variant-row .text-button{grid-column:1/-1;justify-self:start}.catalog-reference .admin-form-grid{grid-template-columns:1fr}}
 
 /* First-load state: quiet, branded, and short-lived while the app initializes. */
-.app-loading-screen{min-height:100vh;min-height:100svh;display:grid;place-items:center;padding:2rem 1.25rem;background-color:var(--ivory);background-image:url('/assets/paper-texture.png');background-repeat:repeat;background-size:736px auto;color:var(--ink);}
+.app-loading-screen{position:fixed;inset:0;z-index:2000;min-height:100vh;min-height:100svh;display:grid;place-items:center;padding:2rem 1.25rem;background-color:var(--ivory);background-image:url('/assets/paper-texture.png');background-repeat:repeat;background-size:736px auto;color:var(--ink);}
 .app-loading-inner{width:min(100%,320px);display:grid;justify-items:center;text-align:center;}
 .app-loading-inner img{display:block;width:clamp(92px,18vw,140px);height:clamp(92px,18vw,140px);object-fit:contain;animation:loading-mark-float 4.8s ease-in-out infinite;}
 .app-loading-brand{margin:1rem 0 .9rem;font-family:'Playfair Display',serif;font-size:clamp(1.25rem,3vw,1.7rem);font-weight:600;line-height:1.15;}
@@ -545,6 +545,7 @@ html{scroll-behavior:smooth;}
 @keyframes loading-mark-float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
 @keyframes loading-progress{0%{transform:translateX(-120%)}100%{transform:translateX(340%)}}
 @media(prefers-reduced-motion:reduce){.app-loading-inner img,.app-loading-track span{animation:none}.app-loading-track span{width:100%;}}
+.catalogue-skeleton{pointer-events:none}.skeleton-block,.skeleton-line{display:block;background:#eee8de;animation:catalogue-pulse 1.15s ease-in-out infinite alternate}.skeleton-block{aspect-ratio:1/1.04}.skeleton-line{height:1rem;margin:.72rem 0;width:78%}.skeleton-short{width:38%;height:.72rem}.skeleton-price{width:52%}@keyframes catalogue-pulse{from{opacity:.62}to{opacity:1}}@media(prefers-reduced-motion:reduce){.skeleton-block,.skeleton-line{animation:none}}
 
 /* Customer account: editorial structure with quiet operational panels. */
 .profile-icon svg{width:22px;height:22px;}

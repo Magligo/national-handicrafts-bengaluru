@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import request from 'supertest';
 import bcrypt from 'bcryptjs';
 import { createApp, validateGoogleIdentity } from './app.js';
+import { adminAuthenticationSource } from './auth.js';
 import { MemoryRepository } from './repository.js';
 
 async function setup(role = 'admin') {
@@ -62,6 +63,24 @@ test('admin login accepts the configured environment credentials', async () => {
     assert.equal(response.status, 200);
     assert.equal(response.body.data.email, 'admin@example.com');
     assert.ok(response.headers['set-cookie'].some((cookie) => cookie.startsWith('nh_admin_token=')));
+    const dashboard = await request(app).get('/api/admin/dashboard').set('Cookie', response.headers['set-cookie']);
+    assert.equal(dashboard.status, 200);
+  } finally {
+    if (previousEmail === undefined) delete process.env.ADMIN_EMAIL; else process.env.ADMIN_EMAIL = previousEmail;
+    if (previousHash === undefined) delete process.env.ADMIN_PASSWORD_HASH; else process.env.ADMIN_PASSWORD_HASH = previousHash;
+  }
+});
+
+test('identifies the same database-first and environment fallback sources as admin login', async () => {
+  const previousEmail = process.env.ADMIN_EMAIL;
+  const previousHash = process.env.ADMIN_PASSWORD_HASH;
+  process.env.ADMIN_EMAIL = 'admin@example.com';
+  process.env.ADMIN_PASSWORD_HASH = await bcrypt.hash('environment-password', 10);
+  try {
+    const environment = await adminAuthenticationSource('admin@example.com', new MemoryRepository());
+    assert.equal(environment.type, 'environment');
+    const database = await adminAuthenticationSource('admin@example.com', new MemoryRepository({ adminUsers: [{ id: 'a1', email: 'admin@example.com', password_hash: await bcrypt.hash('database-password', 10), role: 'admin' }] }));
+    assert.equal(database.type, 'database');
   } finally {
     if (previousEmail === undefined) delete process.env.ADMIN_EMAIL; else process.env.ADMIN_EMAIL = previousEmail;
     if (previousHash === undefined) delete process.env.ADMIN_PASSWORD_HASH; else process.env.ADMIN_PASSWORD_HASH = previousHash;
@@ -322,14 +341,40 @@ test('empty in-memory catalogue is a successful empty response', async () => {
   assert.deepEqual(products.body, { data: [] });
 });
 
-test('allows the deployed storefront origin while keeping other origins out', async () => {
+test('allows the deployed storefront and local development origins while keeping other origins out', async () => {
   const { app } = createApp({ repo: new MemoryRepository(), secret: 'test-secret', corsOrigin: 'http://localhost:5173' });
   const allowed = await request(app).get('/api/products').set('Origin', 'https://national-handicrafts-bengaluru.vercel.app');
+  const local5173 = await request(app).get('/api/products').set('Origin', 'http://localhost:5173');
+  const local5174 = await request(app).get('/api/products').set('Origin', 'http://localhost:5174');
+  const local5174Preflight = await request(app).options('/api/products').set('Origin', 'http://localhost:5174').set('Access-Control-Request-Method', 'GET').set('Access-Control-Request-Headers', 'content-type');
   const blocked = await request(app).get('/api/products').set('Origin', 'https://example.com');
   assert.equal(allowed.status, 200);
   assert.equal(allowed.headers['access-control-allow-origin'], 'https://national-handicrafts-bengaluru.vercel.app');
+  assert.equal(local5173.headers['access-control-allow-origin'], 'http://localhost:5173');
+  assert.equal(local5174.headers['access-control-allow-origin'], 'http://localhost:5174');
+  assert.equal(local5174.headers['access-control-allow-credentials'], 'true');
+  assert.equal(local5174Preflight.status, 204);
+  assert.equal(local5174Preflight.headers['access-control-allow-origin'], 'http://localhost:5174');
+  assert.equal(local5174Preflight.headers['access-control-allow-credentials'], 'true');
   assert.equal(blocked.status, 200);
   assert.equal(blocked.headers['access-control-allow-origin'], undefined);
+});
+
+test('does not add local development origins to the production CORS allowlist', async () => {
+  const previousNodeEnv = process.env.NODE_ENV;
+  const previousFrontendOrigin = process.env.FRONTEND_ORIGIN;
+  process.env.NODE_ENV = 'production';
+  process.env.FRONTEND_ORIGIN = 'https://national-handicrafts-bengaluru.vercel.app';
+  try {
+    const { app } = createApp({ repo: new MemoryRepository(), secret: 'test-secret', corsOrigin: 'https://national-handicrafts-bengaluru.vercel.app' });
+    const deployed = await request(app).get('/api/products').set('Origin', 'https://national-handicrafts-bengaluru.vercel.app');
+    const local = await request(app).get('/api/products').set('Origin', 'http://localhost:5174');
+    assert.equal(deployed.headers['access-control-allow-origin'], 'https://national-handicrafts-bengaluru.vercel.app');
+    assert.equal(local.headers['access-control-allow-origin'], undefined);
+  } finally {
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = previousNodeEnv;
+    if (previousFrontendOrigin === undefined) delete process.env.FRONTEND_ORIGIN; else process.env.FRONTEND_ORIGIN = previousFrontendOrigin;
+  }
 });
 
 test('validates Google issuer, audience, verified email, subject and expiry claims', () => {

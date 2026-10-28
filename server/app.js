@@ -15,6 +15,7 @@ import { OAuth2Client } from 'google-auth-library';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const deployedFrontendOrigin = 'https://national-handicrafts-bengaluru.vercel.app';
+const localDevelopmentOrigins = ['http://localhost:5173', 'http://localhost:5174'];
 const storage = multer.memoryStorage();
 const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024, files: 8 }, fileFilter: (_req, file, cb) => /^image\/(jpeg|png|webp)$/.test(file.mimetype) ? cb(null, true) : cb(new Error('Only JPEG, PNG, and WebP images are allowed')) });
 function removeUploadedFiles(product) { const paths = [...new Set([product?.image_path, ...(product?.image_paths || [])].filter((value) => typeof value === 'string' && value.startsWith('/uploads/')))]; for (const publicPath of paths) { try { fs.unlinkSync(path.join(root, '..', 'public', publicPath.replace(/^\//, ''))); } catch { /* stale or already removed upload */ } } }
@@ -47,13 +48,13 @@ export function createApp({ repo = createRepository(), secret = serverConfig.adm
   const adminLoginRateLimit = createRateLimit({ message: 'Too many failed admin login attempts. Try again later.' });
   const customerLoginRateLimit = createRateLimit({ message: 'Too many failed account login attempts. Try again later.' });
   const orderRateLimit = createRateLimit();
-  const allowedOrigins = new Set([corsOrigin, deployedFrontendOrigin].filter(Boolean));
+  const allowedOrigins = new Set([corsOrigin, deployedFrontendOrigin, ...(process.env.NODE_ENV === 'production' ? [] : localDevelopmentOrigins)].filter(Boolean));
   app.use(cors({ origin: (origin, callback) => callback(null, !origin || allowedOrigins.has(origin)), credentials: true }));
   app.use(express.json({ limit: '1mb' }));
   app.use('/uploads', express.static(path.join(root, '..', 'public', 'uploads')));
   app.get('/api/health', (_req, res) => res.json({ ok: true, service: 'national-handicrafts-api' }));
   app.get('/api/payment/config', (_req, res) => { const config = paymentConfig(); res.json({ data: config.enabled ? config : { enabled: false } }); });
-  app.get('/api/products', async (req, res, next) => { try { res.json({ data: await repo.listProducts({ q: req.query.q || '', category: req.query.category || '' }) }); } catch (e) { next(e); } });
+  app.get('/api/products', async (req, res, next) => { try { res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=300'); res.json({ data: await repo.listProducts({ q: req.query.q || '', category: req.query.category || '' }) }); } catch (e) { next(e); } });
   app.get('/api/products/:id', async (req, res, next) => { try { const p = await repo.getProduct(req.params.id); if (!p || !p.active || p.verification_status !== 'verified') return res.status(404).json({ error: 'Product not found' }); res.json({ data: p }); } catch (e) { next(e); } });
   app.post('/api/auth/login', adminLoginRateLimit, async (req, res, next) => { try { const user = await authenticate(req.body?.email || '', req.body?.password || '', repo); if (!user || user.role !== 'admin') return res.status(401).json({ error: 'Invalid admin credentials' }); setSession(res, user, sessionSecret); res.json({ data: user }); } catch (e) { next(e); } });
   const admin = requireAdmin(sessionSecret, repo);

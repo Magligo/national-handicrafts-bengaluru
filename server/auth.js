@@ -21,16 +21,22 @@ function environmentAdminCredentials() {
   if (!/^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/.test(passwordHash)) throw new AdminConfigurationError('ADMIN_PASSWORD_HASH must be a valid bcrypt hash.');
   return { email, passwordHash };
 }
-export async function authenticate(email, password, repo) {
+export async function adminAuthenticationSource(email, repo) {
   const normalizedEmail = String(email || '').trim().toLowerCase();
   const configured = environmentAdminCredentials();
   const user = await repo.findAdmin(normalizedEmail);
-  if (user) {
-    if (user.role === 'admin' && await bcrypt.compare(String(password || ''), user.password_hash)) return { id: user.id, email: user.email, role: 'admin', sessionVersion: Number(user.session_version || 0) };
+  if (user) return { type: 'database', user };
+  if (configured && normalizedEmail === configured.email.toLowerCase()) return { type: 'environment', credentials: configured };
+  if (!configured) throw new AdminConfigurationError('Admin authentication is not configured. Add an admin account or set ADMIN_EMAIL and ADMIN_PASSWORD_HASH.');
+  return { type: 'none' };
+}
+export async function authenticate(email, password, repo) {
+  const source = await adminAuthenticationSource(email, repo);
+  if (source.type === 'database') {
+    if (source.user.role === 'admin' && await bcrypt.compare(String(password || ''), source.user.password_hash)) return { id: source.user.id, email: source.user.email, role: 'admin', sessionVersion: Number(source.user.session_version || 0) };
     return null;
   }
-  if (configured && normalizedEmail === configured.email.toLowerCase() && await bcrypt.compare(String(password || ''), configured.passwordHash)) return { id: 'env-admin', email: configured.email, role: 'admin' };
-  if (!user && !configured) throw new AdminConfigurationError('Admin authentication is not configured. Add an admin account or set ADMIN_EMAIL and ADMIN_PASSWORD_HASH.');
+  if (source.type === 'environment' && await bcrypt.compare(String(password || ''), source.credentials.passwordHash)) return { id: 'env-admin', email: source.credentials.email, role: 'admin' };
   return null;
 }
 export async function authenticateCustomer(email, password, repo) { const user = await repo.findCustomer(email); if (!user || !(await bcrypt.compare(password, user.password_hash))) return null; return { id: user.id, email: user.email, role: 'customer' }; }

@@ -1,10 +1,16 @@
 import { useMemo, useState } from 'react';
 import { CATEGORIES } from '../../constants/catalogue.js';
 import ProductCard from './ProductCard.jsx';
-import { ErrorState, LoadingState } from '../common/StatusState.jsx';
+import { ErrorState } from '../common/StatusState.jsx';
 import { filterAndSortProducts } from '../../services/catalogueFilters.js';
 
 const defaultFilters = { category: '', minPrice: '', maxPrice: '', availability: 'all', sort: 'featured' };
+
+function CatalogueSkeleton() {
+  return <div className="product-grid catalogue-skeleton" role="status" aria-label="Loading products">
+    {Array.from({ length: 4 }, (_, index) => <article className="product-card" key={index} aria-hidden="true"><div className="product-image skeleton-block" /><div className="product-meta"><span className="skeleton-line skeleton-short" /><span className="skeleton-line" /><span className="skeleton-line skeleton-price" /></div></article>)}
+  </div>;
+}
 
 function FilterControls({ values, onChange }) {
   return <>
@@ -42,7 +48,7 @@ export default function ProductsSection({ products, refresh, openProduct, addToC
       <button className="filter-drawer-trigger" type="button" onClick={openFilters} aria-expanded={filterOpen}>Filter &amp; Sort <span>{activeFilterCount ? `(${activeFilterCount})` : ''}</span></button>
       {filterOpen && <div className="filter-drawer" role="dialog" aria-modal="true" aria-label="Filter and sort products"><div className="filter-drawer-heading"><strong>Filter &amp; Sort</strong><button type="button" onClick={() => setFilterOpen(false)} aria-label="Close filters">×</button></div><div className="catalogue-filter-mobile"><FilterControls values={draftFilters} onChange={updateDraftFilter} /></div><div className="filter-drawer-actions"><button className="button secondary" type="button" onClick={clearFilters}>Clear all</button><button className="button primary" type="button" onClick={applyFilters}>Apply filters</button></div></div>}
     </div>
-    <div className="catalogue-results-bar"><p>{invalidRange ? 'Choose a maximum price greater than the minimum.' : `Showing ${filtered.length} product${filtered.length === 1 ? '' : 's'}`}</p><span>{filterSummary}{searchQuery.trim() ? ` · “${searchQuery.trim()}”` : ''}</span></div>
-    {catalogueState === 'loading' ? <LoadingState /> : catalogueState === 'error' ? <ErrorState onRetry={refresh} message={catalogueError} /> : filtered.length ? <div className="product-grid">{filtered.map((product) => <ProductCard key={product.id} product={product} openProduct={openProduct} addToCart={addToCart} buyNow={buyNow} />)}</div> : <div className="verified-empty"><p>{hasCriteria ? 'No products match those choices.' : 'No matching verified products.'}</p><span>{hasCriteria ? 'Try clearing a filter or searching for another product.' : 'Product records added and verified in the admin portal appear here automatically.'}</span>{hasCriteria && <button className="text-button" type="button" onClick={() => { setSearchQuery(''); clearFilters(); }}>Clear search and filters</button>}</div>}
+    <div className="catalogue-results-bar"><p>{catalogueState === 'loading' ? 'Loading verified products…' : catalogueState === 'error' ? 'Catalogue temporarily unavailable' : invalidRange ? 'Choose a maximum price greater than the minimum.' : `Showing ${filtered.length} product${filtered.length === 1 ? '' : 's'}`}</p><span>{filterSummary}{searchQuery.trim() ? ` · “${searchQuery.trim()}”` : ''}</span></div>
+    {catalogueState === 'loading' ? <CatalogueSkeleton /> : catalogueState === 'error' ? <ErrorState onRetry={refresh} message={catalogueError} /> : filtered.length ? <div className="product-grid">{filtered.map((product) => <ProductCard key={product.id} product={product} openProduct={openProduct} addToCart={addToCart} buyNow={buyNow} />)}</div> : <div className="verified-empty"><p>{hasCriteria ? 'No products match those choices.' : 'No matching verified products.'}</p><span>{hasCriteria ? 'Try clearing a filter or searching for another product.' : 'Product records added and verified in the admin portal appear here automatically.'}</span>{hasCriteria && <button className="text-button" type="button" onClick={() => { setSearchQuery(''); clearFilters(); }}>Clear search and filters</button>}</div>}
   </section>;
 }

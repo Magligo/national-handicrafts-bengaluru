@@ -106,7 +106,7 @@ node tools/change-admin-password.js --execute
 
 It requires the existing administrator email and current password, masks password entry, validates the new password (8–200 characters), hashes it with bcrypt cost 12, and updates only that existing `admin_users` row. It does not print credentials or database connection data, create an account, or modify products, customers, or orders. It also invalidates all active database-backed administrator sessions; sign in again with the new password.
 
-If the deployed installation is intentionally using only `ADMIN_EMAIL` and `ADMIN_PASSWORD_HASH` rather than an `admin_users` row, change the bcrypt hash in Render's environment settings and redeploy. Do not use this utility for that environment-only fallback.
+If the deployed installation uses `ADMIN_EMAIL` and `ADMIN_PASSWORD_HASH` rather than an `admin_users` row, the utility exits before asking for passwords and reports that source. Generate the replacement bcrypt hash with the existing secure local configuration workflow, set only `ADMIN_PASSWORD_HASH` in Render's environment settings, and redeploy. Do not add or modify an `admin_users` record to reset an environment-backed administrator.
 
 The project does not claim PostgreSQL persistence until `DATABASE_URL` is configured and migrations complete successfully. In-memory customer accounts, products, and orders reset when the process stops.
 

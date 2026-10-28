@@ -5,11 +5,23 @@ export { API, API_ORIGIN, ASSET_ORIGIN };
 
 /** Perform a same-origin-capable API request and return the parsed response body. */
 export async function api(path, options = {}) {
+  const { timeout = 12000, signal: callerSignal, ...requestOptions } = options;
+  const service = path.includes('/auth/') ? 'authentication' : 'catalogue';
+  const controller = new AbortController();
+  const abortFromCaller = () => controller.abort(callerSignal?.reason);
+  const timeoutId = setTimeout(() => controller.abort(new DOMException('Request timed out', 'TimeoutError')), timeout);
+  callerSignal?.addEventListener('abort', abortFromCaller, { once: true });
   let response;
   try {
-    response = await fetch(`${API}${path}`, { credentials: 'include', ...options });
-  } catch {
-    throw new Error(`Unable to reach the catalogue API at ${API}. Start the backend on port 4000 and try again.`);
+    response = await fetch(`${API}${path}`, { credentials: 'include', ...requestOptions, signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted && !callerSignal?.aborted) {
+      throw new Error(`The ${service} service is taking too long to respond. Please try again.`);
+    }
+    throw new Error(`Unable to reach the ${service} service. Please try again.`);
+  } finally {
+    clearTimeout(timeoutId);
+    callerSignal?.removeEventListener('abort', abortFromCaller);
   }
 
   let body = null;

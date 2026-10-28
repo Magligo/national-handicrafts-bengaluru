@@ -39,7 +39,10 @@ export class PostgresRepository {
       connectionString,
       max: Number(process.env.PG_POOL_MAX || 5),
       idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 10000,
+      // Bound both connection acquisition and a query so an unavailable Neon
+      // instance releases a Render worker instead of tying it up indefinitely.
+      connectionTimeoutMillis: Number(process.env.PG_CONNECT_TIMEOUT_MS || 8000),
+      query_timeout: Number(process.env.PG_QUERY_TIMEOUT_MS || 8000),
     });
   }
   async query(text, values) { return this.pool.query(text, values); }

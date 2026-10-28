@@ -4,6 +4,7 @@ import QRCode from 'qrcode';
 import './styles.css';
 import SafeImage from './components/common/SafeImage.jsx';
 import ProductsSection from './components/product/ProductsSection.jsx';
+import ScrollToTop from './ScrollToTop.jsx';
 import { CATEGORIES as categories, CATEGORY_IMAGES as categoryImages } from './constants/catalogue.js';
 import { api, authenticateAccount, formatPrice, imageUrl } from './services/api.js';
 
@@ -34,6 +35,7 @@ function App() {
   const params = new URLSearchParams(location.search);
   const initialSection = ['about', 'products'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'home';
   const [page, setPage] = useState(location.pathname === '/profile' ? 'profile' : location.pathname === '/admin' || params.get('admin') === '1' ? 'admin' : params.get('product') ? 'detail' : params.get('page') || initialSection);
+  const [navigationKey, setNavigationKey] = useState(0);
   const [selectedProductId, setSelectedProductId] = useState(params.get('product'));
   const [checkoutItems, setCheckoutItems] = useState([]);
   const [products, setProducts] = useState([]);
@@ -43,17 +45,16 @@ function App() {
   const [showSplash, setShowSplash] = useState(true);
   const { cart, addToCart, setQuantity, removeFromCart, clearCart, reconcile } = useCart();
   const refresh = () => { setCatalogueState('loading'); setCatalogueError(''); return api('/products').then((r) => { const nextProducts = Array.isArray(r?.data) ? r.data : []; setProducts(nextProducts); reconcile(nextProducts); setCatalogueState('ready'); return nextProducts; }).catch((error) => { setCatalogueState('error'); setCatalogueError(error.message); setProducts([]); }); };
-  useEffect(() => { refresh(); const onPopState = () => { const nextParams = new URLSearchParams(location.search); const nextPage = location.pathname === '/profile' ? 'profile' : location.pathname === '/admin' || nextParams.get('admin') === '1' ? 'admin' : nextParams.get('product') ? 'detail' : nextParams.get('page') || (['about', 'products'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'home'); setSelectedProductId(nextParams.get('product')); setPage(nextPage); requestAnimationFrame(() => { if (['home', 'products'].includes(nextPage)) document.getElementById(nextPage)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }); }; addEventListener('popstate', onPopState); return () => removeEventListener('popstate', onPopState); }, []);
+  useEffect(() => { refresh(); const onPopState = () => { const nextParams = new URLSearchParams(location.search); const nextPage = location.pathname === '/profile' ? 'profile' : location.pathname === '/admin' || nextParams.get('admin') === '1' ? 'admin' : nextParams.get('product') ? 'detail' : nextParams.get('page') || (['about', 'products'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'home'); setSelectedProductId(nextParams.get('product')); setPage(nextPage); setNavigationKey((key) => key + 1); }; addEventListener('popstate', onPopState); return () => removeEventListener('popstate', onPopState); }, []);
   // The splash is brand polish, not an API gate: data may still be loading underneath it.
   useEffect(() => { const timer = setTimeout(() => setShowSplash(false), 700); return () => clearTimeout(timer); }, []);
   useEffect(() => { if (catalogueState !== 'loading') setShowSplash(false); }, [catalogueState]);
-  useEffect(() => { if (['about', 'products'].includes(page)) requestAnimationFrame(() => document.getElementById(page)?.scrollIntoView({ block: 'start' })); }, []);
-  const navigate = (nextPage) => { const landingPage = ['home', 'products'].includes(nextPage); setPage(nextPage); if (nextPage !== 'detail') setSelectedProductId(null); if (landingPage) { history.pushState({}, '', nextPage === 'home' ? location.pathname : `${location.pathname}#${nextPage}`); requestAnimationFrame(() => document.getElementById(nextPage)?.scrollIntoView({ behavior: 'smooth', block: 'start' })); } else if (nextPage === 'profile') history.pushState({}, '', '/profile'); else if (nextPage === 'admin') history.pushState({}, '', '/admin'); else if (['about', 'contact', 'cart'].includes(nextPage)) history.pushState({}, '', `${location.pathname}?page=${nextPage}`); };
+  const navigate = (nextPage) => { const landingPage = ['home', 'products'].includes(nextPage); setPage(nextPage); setNavigationKey((key) => key + 1); if (nextPage !== 'detail') setSelectedProductId(null); if (landingPage) history.pushState({}, '', nextPage === 'home' ? location.pathname : `${location.pathname}#${nextPage}`); else if (nextPage === 'profile') history.pushState({}, '', '/profile'); else if (nextPage === 'admin') history.pushState({}, '', '/admin'); else if (['about', 'contact', 'cart'].includes(nextPage)) history.pushState({}, '', `${location.pathname}?page=${nextPage}`); };
   const openProduct = (id) => { setSelectedProductId(id); setPage('detail'); history.pushState({}, '', `${location.pathname}?product=${encodeURIComponent(id)}`); };
   const requireCheckout = async (items) => { try { await api('/customer/auth/me'); setCheckoutItems(items); navigate('checkout'); } catch { setCheckoutItems(items); sessionStorage.setItem('nh_return_to_checkout', '1'); navigate('profile'); } };
   const buyNow = (product) => requireCheckout([{ id: product.id, name: product.name, category: product.category, price_inr: product.price_inr, stock: product.stock, image_path: product.image_path || null, quantity: 1 }]);
   const checkoutCart = () => requireCheckout(cart);
-  return <>{showSplash && <LoadingScreen />}<SiteNavigationV2 page={page} setPage={navigate} cartCount={cart.reduce((sum, item) => sum + item.quantity, 0)} searchQuery={searchQuery} setSearchQuery={setSearchQuery} /><main>
+  return <><ScrollToTop page={page} pathname={location.pathname} navigationKey={navigationKey} />{showSplash && <LoadingScreen />}<SiteNavigationV2 page={page} setPage={navigate} cartCount={cart.reduce((sum, item) => sum + item.quantity, 0)} searchQuery={searchQuery} setSearchQuery={setSearchQuery} /><main>
     {['home', 'products'].includes(page) && <><LandingHero setPage={navigate} /><div id="products" className="scroll-section"><ProductsSection products={products} refresh={refresh} openProduct={openProduct} addToCart={addToCart} buyNow={buyNow} catalogueState={catalogueState} catalogueError={catalogueError} searchQuery={searchQuery} setSearchQuery={setSearchQuery} /></div></>}
     {page === 'about' && <div id="about" className="scroll-section"><About /></div>}
     {page === 'detail' && <ProductDetailV2 id={selectedProductId} setPage={navigate} addToCart={addToCart} buyNow={buyNow} />}

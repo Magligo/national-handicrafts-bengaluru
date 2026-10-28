@@ -165,6 +165,21 @@ test('session persists through auth/me and logout clears it', async () => {
   assert.equal(afterLogout.status, 401);
 });
 
+test('rejects expired admin sessions', async () => {
+  const { app } = await setup();
+  const auth = await signIn(app);
+  const originalNow = Date.now;
+  Date.now = () => originalNow() + 9 * 60 * 60 * 1000;
+  try {
+    assert.equal((await request(app).get('/api/auth/me').set('Cookie', auth.cookie)).status, 401);
+    const mutation = await request(app).post('/api/admin/products').set('Cookie', auth.cookie).set('X-CSRF-Token', auth.token).send({ name: 'Expired Session', category: 'Brass', variants: [] });
+    assert.equal(mutation.status, 401);
+    assert.equal(mutation.body.error, 'Admin session expired');
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
 test('admin password change verifies the current password, invalidates sessions, and accepts the new password', async () => {
   const { app, repo } = await setup();
   const auth = await signIn(app);
@@ -214,6 +229,39 @@ test('requires CSRF protection for admin mutations', async () => {
   const login = await request(app).post('/api/auth/login').send({ email: 'admin@test.local', password: 'correct horse battery staple' });
   const response = await request(app).post('/api/admin/products').set('Cookie', login.headers['set-cookie']).send({ name: 'Blocked Product', category: 'Brass', variants: [] });
   assert.equal(response.status, 403);
+});
+
+test('issues a CSRF token that matches its cookie and rejects a mismatched token', async () => {
+  const { app } = await setup();
+  const login = await request(app).post('/api/auth/login').send({ email: 'admin@test.local', password: 'correct horse battery staple' });
+  const sessionCookies = login.headers['set-cookie'];
+  const issued = await request(app).get('/api/auth/csrf').set('Cookie', sessionCookies);
+  const csrfCookie = issued.headers['set-cookie'].find((cookie) => cookie.startsWith('nh_csrf='));
+  const tokenFromCookie = csrfCookie.match(/^nh_csrf=([^;]+)/)?.[1];
+  assert.equal(issued.status, 200);
+  assert.equal(issued.body.data.token, tokenFromCookie);
+  const mismatch = await request(app).post('/api/admin/products').set('Cookie', [...sessionCookies, csrfCookie]).set('X-CSRF-Token', 'stale-token').send({ name: 'Blocked', category: 'Brass', variants: [] });
+  assert.equal(mismatch.status, 403);
+  assert.equal(mismatch.body.error, 'CSRF validation failed');
+});
+
+test('sets cross-site production cookies securely without a domain attribute', async () => {
+  const previousNodeEnv = process.env.NODE_ENV;
+  const previousFrontendOrigin = process.env.FRONTEND_ORIGIN;
+  process.env.NODE_ENV = 'production';
+  process.env.FRONTEND_ORIGIN = 'https://national-handicrafts-bengaluru.vercel.app';
+  try {
+    const { app } = await setup();
+    const login = await request(app).post('/api/auth/login').send({ email: 'admin@test.local', password: 'correct horse battery staple' });
+    for (const cookie of login.headers['set-cookie']) {
+      assert.match(cookie, /SameSite=None/i);
+      assert.match(cookie, /; Secure/i);
+      assert.doesNotMatch(cookie, /; Domain=/i);
+    }
+  } finally {
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = previousNodeEnv;
+    if (previousFrontendOrigin === undefined) delete process.env.FRONTEND_ORIGIN; else process.env.FRONTEND_ORIGIN = previousFrontendOrigin;
+  }
 });
 
 test('admin can add a verified product and it becomes public', async () => {
@@ -341,7 +389,7 @@ test('empty in-memory catalogue is a successful empty response', async () => {
   assert.deepEqual(products.body, { data: [] });
 });
 
-test('allows the deployed storefront and local development origins while keeping other origins out', async () => {
+test('allows the configured development origin while keeping other origins out', async () => {
   const { app } = createApp({ repo: new MemoryRepository(), secret: 'test-secret', corsOrigin: 'http://localhost:5173' });
   const allowed = await request(app).get('/api/products').set('Origin', 'https://national-handicrafts-bengaluru.vercel.app');
   const local5173 = await request(app).get('/api/products').set('Origin', 'http://localhost:5173');
@@ -349,7 +397,7 @@ test('allows the deployed storefront and local development origins while keeping
   const local5174Preflight = await request(app).options('/api/products').set('Origin', 'http://localhost:5174').set('Access-Control-Request-Method', 'GET').set('Access-Control-Request-Headers', 'content-type');
   const blocked = await request(app).get('/api/products').set('Origin', 'https://example.com');
   assert.equal(allowed.status, 200);
-  assert.equal(allowed.headers['access-control-allow-origin'], 'https://national-handicrafts-bengaluru.vercel.app');
+  assert.equal(allowed.headers['access-control-allow-origin'], undefined);
   assert.equal(local5173.headers['access-control-allow-origin'], 'http://localhost:5173');
   assert.ok(Array.isArray(local5174.body.data));
   assert.equal(local5174.headers['access-control-allow-origin'], 'http://localhost:5174');
@@ -378,7 +426,7 @@ test('does not add local development origins to the production CORS allowlist', 
   }
 });
 
-test('allows only this project’s Vercel preview origins with credentialed product and preflight requests', async () => {
+test('allows only the exact configured production origin with credentialed requests', async () => {
   const previousNodeEnv = process.env.NODE_ENV;
   const previousFrontendOrigin = process.env.FRONTEND_ORIGIN;
   process.env.NODE_ENV = 'production';
@@ -396,11 +444,11 @@ test('allows only this project’s Vercel preview origins with credentialed prod
     assert.equal(production.headers['access-control-allow-origin'], 'https://national-handicrafts-bengaluru.vercel.app');
     assert.equal(preview.status, 200);
     assert.ok(Array.isArray(preview.body.data));
-    assert.equal(preview.headers['access-control-allow-origin'], previewOrigin);
-    assert.equal(preview.headers['access-control-allow-credentials'], 'true');
-    assert.equal(preflight.status, 204);
-    assert.equal(preflight.headers['access-control-allow-origin'], previewOrigin);
-    assert.equal(preflight.headers['access-control-allow-credentials'], 'true');
+    assert.equal(preview.headers['access-control-allow-origin'], undefined);
+    assert.equal(preview.headers['access-control-allow-credentials'], undefined);
+    assert.equal(preflight.status, 200);
+    assert.equal(preflight.headers['access-control-allow-origin'], undefined);
+    assert.equal(preflight.headers['access-control-allow-credentials'], undefined);
     assert.equal(otherProject.headers['access-control-allow-origin'], undefined);
     assert.equal(otherScope.headers['access-control-allow-origin'], undefined);
     assert.equal(arbitraryVercel.headers['access-control-allow-origin'], undefined);
@@ -519,4 +567,19 @@ test('customer orders are associated server-side and private to the signed-in cu
   const bina = await customerSignIn(app, 'bina@example.com');
   const otherOrders = await request(app).get('/api/customer/orders').set('Cookie', bina.cookie);
   assert.deepEqual(otherOrders.body.data, []);
+});
+
+test('order controls enforce ownership, status transitions, COD collection, and shipped cancellation review', async () => {
+  const passwordHash = await bcrypt.hash('customer-password', 10);
+  const repo = new MemoryRepository({ adminUsers: [{ id: 'a1', email: 'admin@test.local', password_hash: await bcrypt.hash('correct horse battery staple', 10), role: 'admin' }], customers: [{ id: 'c1', email: 'asha@example.com', password_hash: passwordHash, name: 'Asha Rao' }, { id: 'c2', email: 'bina@example.com', password_hash: passwordHash, name: 'Bina Das' }], orders: [{ id: 'NH-1', customer_id: 'c1', status: 'shipped', payment_method: 'COD', payment_status: 'pending' }, { id: 'NH-2', customer_id: 'c1', status: 'pending', payment_method: 'COD', payment_status: 'pending' }, { id: 'NH-3', customer_id: 'c2', status: 'delivered', payment_method: 'COD', payment_status: 'pending' }] });
+  const { app } = createApp({ repo, secret: 'test-secret' }); const admin = await signIn(app); const asha = await customerSignIn(app); const bina = await customerSignIn(app, 'bina@example.com');
+  assert.equal((await customerRequest(app, bina, 'post', '/api/customer/orders/NH-1/cancellation')).status, 404);
+  const requested = await customerRequest(app, asha, 'post', '/api/customer/orders/NH-1/cancellation'); assert.equal(requested.status, 201); assert.equal(requested.body.data.cancellation_request_status, 'pending');
+  assert.equal((await customerRequest(app, asha, 'post', '/api/customer/orders/NH-1/cancellation')).status, 409);
+  assert.equal((await customerRequest(app, bina, 'post', '/api/customer/orders/NH-3/cancellation')).status, 409);
+  const approved = await adminRequest(app, admin, 'post', '/api/admin/orders/NH-1/cancellation/approved'); assert.equal(approved.body.data.status, 'cancelled');
+  const collected = await adminRequest(app, admin, 'post', '/api/admin/orders/NH-2/payment/collect-cod'); assert.equal(collected.body.data.payment_status, 'verified'); assert.equal(collected.body.data.status, 'pending');
+  assert.equal((await adminRequest(app, admin, 'post', '/api/admin/orders/NH-2/payment/collect-cod')).status, 409);
+  assert.equal((await adminRequest(app, admin, 'patch', '/api/admin/orders/NH-3/status').send({ status: 'shipped' })).status, 409);
+  const ownOrders = await request(app).get('/api/customer/orders').set('Cookie', asha.cookie); assert.equal(ownOrders.body.data.find((item) => item.id === 'NH-2').payment_status, 'verified');
 });

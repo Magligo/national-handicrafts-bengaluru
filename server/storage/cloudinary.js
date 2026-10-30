@@ -3,7 +3,7 @@ import { v2 as cloudinary } from 'cloudinary';
 const folder = 'national-handicrafts/products';
 
 export function cloudinaryConfigurationError() {
-  const error = new Error('Cloudinary image storage is not configured. Add CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET to the Render backend environment.');
+  const error = new Error('Cloudinary image storage is not configured. Set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET in the backend .env for local development or in the Render backend environment for production.');
   error.status = 503;
   error.code = 'CLOUDINARY_CONFIG_MISSING';
   return error;

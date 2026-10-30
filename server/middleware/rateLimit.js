@@ -1,5 +1,5 @@
 /** Create a small in-process limiter for login and order bursts. Failed responses consume a slot. */
-export function createRateLimit({ max = 10, windowMs = 15 * 60 * 1000, message = 'Too many requests. Try again later.' } = {}) {
+export function createRateLimit({ max = 10, windowMs = 15 * 60 * 1000, message = 'Too many requests. Try again later.', countSuccessful = false } = {}) {
   const attempts = new Map();
   return (req, res, next) => {
     const key = req.ip || req.socket.remoteAddress || 'unknown';
@@ -12,7 +12,7 @@ export function createRateLimit({ max = 10, windowMs = 15 * 60 * 1000, message =
     recent.push(now);
     attempts.set(key, recent);
     res.once('finish', () => {
-      if (res.statusCode < 400) {
+      if (!countSuccessful && res.statusCode < 400) {
         const current = attempts.get(key) || [];
         const index = current.indexOf(now);
         if (index >= 0) current.splice(index, 1);

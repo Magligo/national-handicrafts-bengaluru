@@ -7,11 +7,13 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { authenticate, authenticateCustomer, clearSession, clearCustomerSession, getCsrfToken, getCustomerCsrfToken, setSession, setCustomerSession, requireAdmin, requireCustomer, optionalCustomer } from './auth.js';
 import { createRepository } from './repository.js';
-import { productInput, validateOrder, customerRegistrationInput, customerProfileInput, addressInput, adminPasswordChangeInput, orderStatuses } from './validation.js';
+import { productInput, validateOrder, customerRegistrationInput, customerProfileInput, addressInput, adminPasswordChangeInput, orderStatuses, validateCustomerPassword } from './validation.js';
 import { getConfiguredFrontendOrigins, paymentConfig, serverConfig } from './config/env.js';
 import { createRateLimit } from './middleware/rateLimit.js';
 import { uploadProductImage } from './storage/cloudinary.js';
 import { OAuth2Client } from 'google-auth-library';
+import { createHash, randomBytes } from 'node:crypto';
+import { sendPasswordResetEmail, emailDeliveryConfigured } from './email/resend.js';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const localDevelopmentOrigins = ['http://localhost:5173', 'http://localhost:5174'];
@@ -21,7 +23,7 @@ const corsHeaders = ['Content-Type', 'X-CSRF-Token', 'Idempotency-Key'];
 const storage = multer.memoryStorage();
 const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024, files: 8 }, fileFilter: (_req, file, cb) => /^image\/(jpeg|png|webp)$/.test(file.mimetype) ? cb(null, true) : cb(new Error('Only JPEG, PNG, and WebP images are allowed')) });
 function removeUploadedFiles(product) { const paths = [...new Set([product?.image_path, ...(product?.image_paths || [])].filter((value) => typeof value === 'string' && value.startsWith('/uploads/')))]; for (const publicPath of paths) { try { fs.unlinkSync(path.join(root, '..', 'public', publicPath.replace(/^\//, ''))); } catch { /* stale or already removed upload */ } } }
-function publicError(error) { if (error?.code === 'LIMIT_FILE_SIZE') return 'Each image must be 5 MB or smaller'; if (error?.code === 'LIMIT_FILE_COUNT') return 'You can upload up to 8 images'; if (/Only (?:image files|JPEG, PNG, and WebP)/i.test(error?.message || '')) return 'Only JPEG, PNG, and WebP images are allowed'; if (/required|must be|between|one of|valid JSON|positive whole|Insufficient stock|No valid products|configured|duplicate|price|Google sign-in/i.test(error?.message || '')) return error.message; return 'Request failed'; }
+function publicError(error) { if (error?.code === 'LIMIT_FILE_SIZE') return 'Each image must be 5 MB or smaller'; if (error?.code === 'LIMIT_FILE_COUNT') return 'You can upload up to 8 images'; if (/Only (?:image files|JPEG, PNG, and WebP)/i.test(error?.message || '')) return 'Only JPEG, PNG, and WebP images are allowed'; if (/required|must be|between|one of|valid JSON|positive whole|Insufficient stock|No valid products|configured|duplicate|price|Google sign-in|available|option|awaiting|verified|quantity/i.test(error?.message || '')) return error.message; return 'Request failed'; }
 async function uploadProductImages(files, uploader) { return Promise.all(files.map(async (file) => (await uploader(file)).url)); }
 function publicCustomer(customer) { if (!customer) return null; return { id: customer.id, email: customer.email, name: customer.name, avatar_url: customer.avatar_url || '', phone: customer.phone || '', address: customer.address || '', city: customer.city || '', state: customer.state || '', pin: customer.pin || '', created_at: customer.created_at, updated_at: customer.updated_at }; }
 export function validateGoogleIdentity(payload, clientId, now = Date.now()) {
@@ -41,7 +43,7 @@ async function verifyGoogleCredential(credential, clientId) {
   }
 }
 
-export function createApp({ repo = createRepository(), secret = serverConfig.adminSessionSecret, corsOrigin, imageUploader = uploadProductImage, googleVerifier = verifyGoogleCredential, googleClientId = serverConfig.googleClientId } = {}) {
+export function createApp({ repo = createRepository(), secret = serverConfig.adminSessionSecret, corsOrigin, imageUploader = uploadProductImage, googleVerifier = verifyGoogleCredential, googleClientId = serverConfig.googleClientId, passwordResetMailer = null } = {}) {
   if (process.env.NODE_ENV === 'production' && !secret) throw new Error('ADMIN_SESSION_SECRET is required in production');
   const configuredOrigins = getConfiguredFrontendOrigins(corsOrigin);
   if (process.env.NODE_ENV === 'production' && configuredOrigins.length === 0) throw new Error('FRONTEND_ORIGINS or FRONTEND_ORIGIN is required in production');
@@ -50,6 +52,8 @@ export function createApp({ repo = createRepository(), secret = serverConfig.adm
   const app = express();
   const adminLoginRateLimit = createRateLimit({ message: 'Too many failed admin login attempts. Try again later.' });
   const customerLoginRateLimit = createRateLimit({ message: 'Too many failed account login attempts. Try again later.' });
+  const passwordResetRateLimit = createRateLimit({ max: 5, countSuccessful: true, message: 'Too many password reset requests. Try again later.' });
+  const passwordResetTokenRateLimit = createRateLimit({ max: 10, countSuccessful: true, message: 'Too many password reset attempts. Try again later.' });
   const orderRateLimit = createRateLimit();
   const allowedOrigins = new Set([...configuredOrigins, ...(process.env.NODE_ENV === 'production' ? [] : localDevelopmentOrigins)]);
   const isAllowedOrigin = (origin) => allowedOrigins.has(origin) || projectVercelPreviewOrigin.test(origin);
@@ -91,11 +95,41 @@ export function createApp({ repo = createRepository(), secret = serverConfig.adm
   app.get('/api/auth/me', admin, (req, res) => res.json({ data: req.admin }));
   app.get('/api/auth/csrf', admin, getCsrfToken);
   app.post('/api/auth/password', adminMutation, async (req, res, next) => { try { const { currentPassword, newPassword } = adminPasswordChangeInput(req.body); if (req.admin.id === 'env-admin') return res.status(409).json({ error: 'Environment-configured admin credentials must be changed in the deployment environment settings.' }); const saved = await repo.findAdminById(req.admin.id); if (!saved || saved.role !== 'admin' || !(await bcrypt.compare(currentPassword, saved.password_hash))) return res.status(401).json({ error: 'Current password is incorrect' }); await repo.updateAdminPassword(req.admin.id, await bcrypt.hash(newPassword, 12)); clearSession(res); res.status(204).end(); } catch (e) { next(e); } });
-  const customer = requireCustomer(customerSessionSecret);
-  const customerMutation = requireCustomer(customerSessionSecret, { csrf: true });
-  app.post('/api/customer/auth/register', customerLoginRateLimit, async (req, res, next) => { try { const input = customerRegistrationInput(req.body); if (await repo.findCustomer(input.email)) return res.status(409).json({ error: 'An account with this email already exists' }); const saved = await repo.createCustomer({ email: input.email, password_hash: await bcrypt.hash(input.password, 12), name: input.name }); const user = { id: saved.id, email: saved.email, role: 'customer' }; setCustomerSession(res, user, customerSessionSecret); res.status(201).json({ data: publicCustomer(saved) }); } catch (e) { next(e); } });
+  const customer = requireCustomer(customerSessionSecret, repo);
+  const customerMutation = requireCustomer(customerSessionSecret, repo, { csrf: true });
+  app.post('/api/customer/auth/register', customerLoginRateLimit, async (req, res, next) => { try { const input = customerRegistrationInput(req.body); if (await repo.findCustomer(input.email)) return res.status(409).json({ error: 'An account with this email already exists' }); const saved = await repo.createCustomer({ email: input.email, password_hash: await bcrypt.hash(input.password, 12), name: input.name }); const user = { id: saved.id, email: saved.email, role: 'customer', sessionVersion: Number(saved.session_version || 0) }; setCustomerSession(res, user, customerSessionSecret); res.status(201).json({ data: publicCustomer(saved) }); } catch (e) { next(e); } });
   app.post('/api/customer/auth/login', customerLoginRateLimit, async (req, res, next) => { try { const user = await authenticateCustomer(String(req.body?.email || '').trim(), String(req.body?.password || ''), repo); if (!user) return res.status(401).json({ error: 'Invalid customer credentials' }); const saved = await repo.getCustomer(user.id); setCustomerSession(res, user, customerSessionSecret); res.json({ data: publicCustomer(saved) }); } catch (e) { next(e); } });
-  app.post('/api/customer/auth/google', customerLoginRateLimit, async (req, res, next) => { try { const identity = await googleVerifier(String(req.body?.credential || ''), googleClientId); let saved = await repo.findCustomerByGoogleId(identity.google_id); if (!saved) { const emailAccount = await repo.findCustomer(identity.email); if (emailAccount) return res.status(409).json({ error: 'An account with this email already exists. Sign in with your existing email and password before linking Google.' }); saved = await repo.createCustomer({ ...identity, password_hash: null }); } const user = { id: saved.id, email: saved.email, role: 'customer' }; setCustomerSession(res, user, customerSessionSecret); res.json({ data: publicCustomer(saved) }); } catch (e) { console.warn(`[google-auth] ${e.message}`); next(e); } });
+  const genericResetMessage = 'If an account exists for that email and password recovery is configured, reset instructions will be sent.';
+  app.post('/api/customer/auth/password/forgot', passwordResetRateLimit, async (req, res, next) => {
+    try {
+      const email = String(req.body?.email || '').trim().toLowerCase();
+      const configured = typeof passwordResetMailer === 'function' || emailDeliveryConfigured();
+      const customerRecord = configured && /^\S+@\S+\.\S+$/.test(email) ? await repo.findCustomer(email) : null;
+      if (customerRecord) {
+        const token = randomBytes(32).toString('base64url');
+        const tokenHash = createHash('sha256').update(token).digest('hex');
+        await repo.saveCustomerPasswordReset(email, tokenHash, new Date(Date.now() + 30 * 60 * 1000).toISOString());
+        const origin = String(process.env.FRONTEND_ORIGIN || serverConfig.frontendOrigin).replace(/\/$/, '');
+        const resetUrl = `${origin}/?page=password-reset&token=${encodeURIComponent(token)}`;
+        try { await (passwordResetMailer || sendPasswordResetEmail)({ email, name: customerRecord.name, resetUrl }); }
+        catch { await repo.clearCustomerPasswordReset(tokenHash); console.warn('[password-reset] email delivery unavailable'); }
+      }
+      res.status(202).json({ message: genericResetMessage });
+    } catch (error) { next(error); }
+  });
+  app.post('/api/customer/auth/password/reset', passwordResetTokenRateLimit, async (req, res, next) => {
+    try {
+      const token = String(req.body?.token || '');
+      const password = validateCustomerPassword(req.body?.password);
+      if (!/^[A-Za-z0-9_-]{40,60}$/.test(token)) return res.status(400).json({ error: 'This password reset link is invalid or expired. Request a new link.' });
+      const tokenHash = createHash('sha256').update(token).digest('hex');
+      const updated = await repo.resetCustomerPassword(tokenHash, await bcrypt.hash(password, 12));
+      if (!updated) return res.status(400).json({ error: 'This password reset link is invalid or expired. Request a new link.' });
+      clearCustomerSession(res);
+      res.json({ message: 'Your password has been reset. Sign in with your new password.' });
+    } catch (error) { next(error); }
+  });
+  app.post('/api/customer/auth/google', customerLoginRateLimit, async (req, res, next) => { try { const identity = await googleVerifier(String(req.body?.credential || ''), googleClientId); let saved = await repo.findCustomerByGoogleId(identity.google_id); if (!saved) { const emailAccount = await repo.findCustomer(identity.email); if (emailAccount) return res.status(409).json({ error: 'An account with this email already exists. Sign in with your existing email and password before linking Google.' }); saved = await repo.createCustomer({ ...identity, password_hash: null }); } const user = { id: saved.id, email: saved.email, role: 'customer', sessionVersion: Number(saved.session_version || 0) }; setCustomerSession(res, user, customerSessionSecret); res.json({ data: publicCustomer(saved) }); } catch (e) { console.warn(`[google-auth] ${e.message}`); next(e); } });
   app.post('/api/customer/auth/logout', customerMutation, (_req, res) => { clearCustomerSession(res); res.status(204).end(); });
   app.get('/api/customer/auth/me', customer, async (req, res, next) => { try { const saved = await repo.getCustomer(req.customer.id); if (!saved) return res.status(401).json({ error: 'Customer account not found' }); res.json({ data: publicCustomer(saved) }); } catch (e) { next(e); } });
   app.get('/api/customer/auth/csrf', customer, getCustomerCsrfToken);
@@ -107,40 +141,13 @@ export function createApp({ repo = createRepository(), secret = serverConfig.adm
   app.post('/api/customer/addresses', customerMutation, async (req, res, next) => { try { res.status(201).json({ data: await repo.createAddress(req.customer.id, addressInput(req.body)) }); } catch (e) { next(e); } });
   app.patch('/api/customer/addresses/:id', customerMutation, async (req, res, next) => { try { const updated = await repo.updateAddress(req.params.id, req.customer.id, addressInput(req.body)); if (!updated) return res.status(404).json({ error: 'Address not found' }); res.json({ data: updated }); } catch (e) { next(e); } });
   app.delete('/api/customer/addresses/:id', customerMutation, async (req, res, next) => { try { if (!await repo.deleteAddress(req.params.id, req.customer.id)) return res.status(404).json({ error: 'Address not found' }); res.status(204).end(); } catch (e) { next(e); } });
-  app.post('/api/orders', optionalCustomer(customerSessionSecret), orderRateLimit, async (req, res, next) => {
+  app.post('/api/orders', optionalCustomer(customerSessionSecret, repo), orderRateLimit, async (req, res, next) => {
     try {
       validateOrder(req.body);
       const paymentMethod = String(req.body.paymentMethod || 'UPI').toUpperCase();
       const idempotencyKey = String(req.get('Idempotency-Key') || req.body.idempotencyKey || '').trim().slice(0, 120);
-      const existing = await repo.findOrderByIdempotencyKey(idempotencyKey);
-      if (existing) return res.status(200).json({ data: existing, duplicate: true });
-      const items = [];
-      for (const requested of req.body.items) {
-        const product = await repo.getProduct(requested.id);
-        const quantity = Number(requested.quantity);
-        if (!product || !product.active || product.verification_status !== 'verified') continue;
-        if (!Number.isInteger(quantity) || quantity < 1) throw new Error('Quantity must be a positive whole number');
-        const variants = Array.isArray(product.variants) ? product.variants : [];
-        let selectedVariant = null;
-        let unitPriceInr = product.price_inr;
-        let availableStock = product.stock;
-        if (variants.length) {
-          selectedVariant = variants.find((variant) => variant.id === requested.variantId || (variant.sku && variant.sku === requested.variantSku));
-          if (!selectedVariant) throw new Error(`Choose a valid variant for ${product.name}`);
-          if (selectedVariant.source_review_status !== 'verified') throw new Error(`The selected option for ${product.name} is awaiting price review`);
-          unitPriceInr = selectedVariant.price_inr ?? selectedVariant.price;
-          availableStock = selectedVariant.stock;
-          if (selectedVariant.availability !== 'available') throw new Error(`The selected option for ${product.name} is not available to order`);
-        }
-        if (availableStock !== null && availableStock !== undefined && quantity > availableStock) throw new Error(`Insufficient stock for ${product.name}${selectedVariant ? ` (${selectedVariant.name || selectedVariant.size || 'selected option'})` : ''}`);
-        if (unitPriceInr == null || !Number.isSafeInteger(Number(unitPriceInr))) throw new Error(`A verified price is required for ${product.name}`);
-        const variantSnapshot = selectedVariant ? { id: selectedVariant.id, name: selectedVariant.name || null, size: selectedVariant.size || null, weight: selectedVariant.weight ?? null, weightUnit: selectedVariant.weight_unit || null, dimensions: selectedVariant.dimensions || null, capacity: selectedVariant.capacity || null, capacityUnit: selectedVariant.capacity_unit || null, sku: selectedVariant.sku || null } : null;
-        items.push({ productId: product.id, name: product.name, quantity, unitPriceInr: Number(unitPriceInr), imagePath: product.image_path || null, variantId: selectedVariant?.id || null, variant: variantSnapshot });
-      }
-      if (!items.length) return res.status(400).json({ error: 'No valid products found' });
-      const subtotal = items.reduce((sum, item) => sum + item.unitPriceInr * item.quantity, 0);
       const configured = paymentConfig().enabled;
-      const saved = await repo.createOrderIdempotently({ customer_id: req.customer?.id || null, customer: req.body.customer, items, subtotal_inr: subtotal, shipping_inr: 0, total_inr: subtotal, payment_method: paymentMethod, payment_status: paymentMethod === 'COD' ? 'pending' : configured ? 'pending' : 'not_configured', payment_reference: null, idempotency_key: idempotencyKey || null, status: 'pending' });
+      const saved = await repo.createOrderWithInventory({ customer_id: req.customer?.id || null, customer: req.body.customer, requestedItems: req.body.items, shipping_inr: 0, payment_method: paymentMethod, payment_status: paymentMethod === 'COD' ? 'pending' : configured ? 'pending' : 'not_configured', payment_reference: null, idempotency_key: idempotencyKey || null, status: 'pending' });
       res.status(saved.duplicate ? 200 : 201).json({ data: saved.order, ...(saved.duplicate ? { duplicate: true } : {}), payment: paymentMethod === 'UPI' && configured ? paymentConfig() : { enabled: false } });
     } catch (error) { next(error); }
   });

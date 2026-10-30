@@ -139,3 +139,9 @@ The test suite covers admin authorization, bcrypt login, session/logout behavior
 ## Deployment
 
 Use a managed PostgreSQL instance, a secret manager, HTTPS, a separately hosted frontend/API with an explicit `FRONTEND_ORIGIN`, and durable object storage for uploads. Run migrations before starting the API. Do not use the in-memory repository in production. A real payment provider and verified webhook are still required before treating UPI payments as automatically verified.
+
+### Product images and customer password recovery
+
+Product image uploads use Cloudinary. Configure `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET` in the local `.env` and Render backend environment. Keep these credentials on the backend. Products can still be saved without an image when image upload is not configured.
+
+Password reset email uses Resend. Configure `RESEND_API_KEY` and `PASSWORD_RESET_FROM_EMAIL` with a sender address verified in Resend, and set `FRONTEND_ORIGIN` to the website origin so reset links return to the correct site. Without those email variables, the API returns the same generic recovery response but does not create or claim to send a reset link. Reset tokens expire after 30 minutes, are single use, and only their SHA-256 hashes are stored.

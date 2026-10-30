@@ -43,6 +43,9 @@ CREATE TABLE IF NOT EXISTS customers (
   password_hash TEXT,
   name TEXT NOT NULL,
   google_id TEXT UNIQUE,
+  session_version INTEGER NOT NULL DEFAULT 0,
+  password_reset_token_hash TEXT,
+  password_reset_expires_at TIMESTAMPTZ,
   avatar_url TEXT,
   phone TEXT,
   address TEXT,
@@ -83,6 +86,7 @@ CREATE TABLE IF NOT EXISTS orders (
   payment_verified_by TEXT,
   payment_evidence_note TEXT,
   idempotency_key TEXT UNIQUE,
+  inventory_restored_at TIMESTAMPTZ,
   status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('enquiry','pending','confirmed','processing','packed','shipped','delivered','completed','cancelled')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

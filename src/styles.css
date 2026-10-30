@@ -1608,3 +1608,34 @@ button:focus-visible, a:focus-visible, [role="button"]:focus-visible, summary:fo
 @media (prefers-reduced-motion: reduce) {
   .hero-art img { animation: none; }
 }
+
+/* Admin mobile drawer backdrop and stacking. */
+.admin-menu-backdrop { display: none; }
+@media (max-width: 720px) {
+  .admin-sidebar {
+    width: min(300px, 86vw);
+    height: 100vh;
+    height: 100dvh;
+  }
+  .admin-menu-open .admin-workspace::before { display: none; }
+  .admin-menu-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: rgba(31, 29, 25, .62);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .admin-menu-backdrop:focus-visible {
+    outline: 2px solid var(--terracotta);
+    outline-offset: -4px;
+  }
+  .admin-sidebar { z-index: 30; }
+}

@@ -36,10 +36,14 @@ export function productInput(body = {}, { partial = false } = {}) {
 }
 export function validateOrder(body) {
   const customer = body?.customer || {};
-  if (!customer.name || customer.name.trim().length > 160) throw new Error('Customer name is required');
+  if (typeof customer.name !== 'string' || !customer.name.trim() || customer.name.trim().length > 160) throw new Error('Customer name is required');
   if (!/^\S+@\S+\.\S+$/.test(customer.email || '')) throw new Error('A valid email is required');
-  if (!/^\+?[0-9 ()-]{7,20}$/.test(customer.phone || '')) throw new Error('A valid mobile number is required');
-  for (const [key, label, max] of [['address', 'Delivery address', 500], ['city', 'City', 100], ['state', 'State', 100]]) if (!customer[key] || customer[key].trim().length > max) throw new Error(`${label} is required`);
+  const mobile = String(customer.phone || '').replace(/[\s()-]/g, '');
+  if (!/^(?:\+91)?[6-9]\d{9}$/.test(mobile)) throw new Error('A valid Indian mobile number is required');
+  for (const [key, label, max] of [['address', 'Delivery address', 500], ['city', 'City', 100], ['state', 'State', 100]]) if (typeof customer[key] !== 'string' || !customer[key].trim() || customer[key].trim().length > max) throw new Error(`${label} is required`);
+  if (typeof customer.houseStreet !== 'string' || !customer.houseStreet.trim() || customer.houseStreet.trim().length > 300) throw new Error('House number / Street address is required');
+  if (typeof customer.locality !== 'string' || !customer.locality.trim() || customer.locality.trim().length > 200) throw new Error('Area / Locality is required');
+  if (customer.landmark && (typeof customer.landmark !== 'string' || customer.landmark.trim().length > 200)) throw new Error('Landmark must be 200 characters or fewer');
   if (customer.district && customer.district.trim().length > 100) throw new Error('District is too long');
   if (!/^\d{6}$/.test(customer.pin || '')) throw new Error('A valid 6-digit PIN code is required');
   if (customer.instructions && customer.instructions.length > 500) throw new Error('Delivery instructions are too long');

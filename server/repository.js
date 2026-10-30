@@ -16,6 +16,13 @@ export class MemoryRepository {
   async updateAdminPassword(id, passwordHash) { const user = await this.findAdminById(id); if (!user) return null; user.password_hash = passwordHash; user.session_version = Number(user.session_version || 0) + 1; return user; }
   async findOrderByIdempotencyKey(key) { return key ? this.orders.find((order) => order.idempotency_key === key) || null : null; }
   async createOrder(order) { const saved = { id: `NH-${Date.now()}-${randomUUID().slice(0, 6)}`, shipping_inr: 0, ...order, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }; this.orders.unshift(saved); return saved; }
+  async createOrderIdempotently(order) {
+    const existing = order.idempotency_key && this.orders.find((item) => item.idempotency_key === order.idempotency_key);
+    if (existing) return { order: existing, duplicate: true };
+    const saved = { id: `NH-${Date.now()}-${randomUUID().slice(0, 6)}`, shipping_inr: 0, ...order, created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+    this.orders.unshift(saved);
+    return { order: saved, duplicate: false };
+  }
   async findCustomer(email) { return this.customers.find((u) => u.email.toLowerCase() === email.toLowerCase()) || null; }
   async findCustomerByGoogleId(googleId) { return this.customers.find((u) => u.google_id === googleId) || null; }
   async createCustomer(input) { const customer = { id: randomUUID(), ...input, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }; this.customers.push(customer); return customer; }
@@ -59,6 +66,26 @@ export class PostgresRepository {
   async updateAdminPassword(id, passwordHash) { const r = await this.query('UPDATE admin_users SET password_hash = $1, session_version = session_version + 1 WHERE id = $2 RETURNING *', [passwordHash, id]); return r.rows[0] || null; }
   async findOrderByIdempotencyKey(key) { if (!key) return null; const r = await this.query('SELECT * FROM orders WHERE idempotency_key = $1', [key]); return r.rows[0] || null; }
   async createOrder(order) { const client = await this.pool.connect(); try { await client.query('BEGIN'); const r = await client.query('INSERT INTO orders (customer_id, customer, items, subtotal_inr, shipping_inr, total_inr, payment_method, payment_status, payment_reference, idempotency_key, status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *', [order.customer_id || null, order.customer, JSON.stringify(order.items), order.subtotal_inr, order.shipping_inr || 0, order.total_inr, order.payment_method, order.payment_status, order.payment_reference, order.idempotency_key, order.status]); await client.query('COMMIT'); return r.rows[0]; } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); } }
+  async createOrderIdempotently(order) {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const inserted = await client.query('INSERT INTO orders (customer_id, customer, items, subtotal_inr, shipping_inr, total_inr, payment_method, payment_status, payment_reference, idempotency_key, status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (idempotency_key) DO NOTHING RETURNING *', [order.customer_id || null, order.customer, JSON.stringify(order.items), order.subtotal_inr, order.shipping_inr || 0, order.total_inr, order.payment_method, order.payment_status, order.payment_reference, order.idempotency_key, order.status]);
+      if (inserted.rows[0]) {
+        await client.query('COMMIT');
+        return { order: inserted.rows[0], duplicate: false };
+      }
+      const existing = await client.query('SELECT * FROM orders WHERE idempotency_key = $1', [order.idempotency_key]);
+      if (!existing.rows[0]) throw new Error('The order could not be saved. Please try again.');
+      await client.query('COMMIT');
+      return { order: existing.rows[0], duplicate: true };
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
   async listOrders() { return (await this.query('SELECT * FROM orders ORDER BY created_at DESC')).rows; }
   async findCustomer(email) { const r = await this.query('SELECT * FROM customers WHERE email = $1', [email.toLowerCase()]); return r.rows[0] || null; }
   async findCustomerByGoogleId(googleId) { const r = await this.query('SELECT * FROM customers WHERE google_id = $1', [googleId]); return r.rows[0] || null; }

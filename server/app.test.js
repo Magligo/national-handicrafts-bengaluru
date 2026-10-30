@@ -290,7 +290,7 @@ test('order total uses the server product price, not the client price', async ()
   const customerAuth = await customerSignIn(app);
   await adminRequest(app, auth, 'post', '/api/admin/products').send({ name: 'Copper Bowl', category: 'Copper', price: 700, stock: 5, variants: [], verificationStatus: 'verified' });
   const product = (await request(app).get('/api/products')).body.data[0];
-  const order = await request(app).post('/api/orders').set('Cookie', customerAuth.cookie).set('Idempotency-Key', 'price-tamper-test').send({ customer: { name: 'Asha', email: 'asha@example.com', phone: '9876543210', address: '12 Market Road', city: 'Bengaluru', state: 'Karnataka', pin: '560001' }, items: [{ id: product.id, quantity: 2, price: 1 }] });
+  const order = await request(app).post('/api/orders').set('Cookie', customerAuth.cookie).set('Idempotency-Key', 'price-tamper-test').send({ customer: { name: 'Asha', email: 'asha@example.com', phone: '9876543210', address: '12 Market Road, Central Bengaluru', houseStreet: '12 Market Road', locality: 'Central Bengaluru', city: 'Bengaluru', state: 'Karnataka', pin: '560001' }, items: [{ id: product.id, quantity: 2, price: 1 }] });
   assert.equal(order.status, 201);
   assert.equal(order.body.data.total_inr, 1400);
   assert.equal(repo.orders[0].items[0].unitPriceInr, 700);
@@ -341,16 +341,40 @@ test('creates one order for duplicate idempotency submissions and exposes it to 
   const auth = await signIn(app);
   const customerAuth = await customerSignIn(app);
   const productResponse = await adminRequest(app, auth, 'post', '/api/admin/products').send({ name: 'Order Test Bowl', category: 'Brass', price: 900, stock: 4, variants: [], verificationStatus: 'verified' });
-  const body = { customer: { name: 'Asha', email: 'asha@example.com', phone: '9876543210', address: '12 Market Road', city: 'Bengaluru', state: 'Karnataka', pin: '560001', instructions: 'Call on arrival' }, items: [{ id: productResponse.body.data.id, quantity: 1 }] };
-  const first = await request(app).post('/api/orders').set('Cookie', customerAuth.cookie).set('Idempotency-Key', 'duplicate-order-test').send(body);
-  const second = await request(app).post('/api/orders').set('Cookie', customerAuth.cookie).set('Idempotency-Key', 'duplicate-order-test').send(body);
-  assert.equal(first.status, 201);
-  assert.equal(second.status, 200);
+  const body = { customer: { name: 'Asha', email: 'asha@example.com', phone: '9876543210', address: '12 Market Road, Central Bengaluru', houseStreet: '12 Market Road', locality: 'Central Bengaluru', city: 'Bengaluru', state: 'Karnataka', pin: '560001', landmark: 'Near the old market' }, paymentMethod: 'COD', items: [{ id: productResponse.body.data.id, quantity: 1 }] };
+  const responses = await Promise.all([1, 2].map(() => request(app).post('/api/orders').set('Cookie', customerAuth.cookie).set('Idempotency-Key', 'duplicate-order-test').send(body)));
+  const first = responses.find((response) => response.status === 201);
+  const second = responses.find((response) => response.status === 200);
+  assert.ok(first);
+  assert.ok(second);
   assert.equal(second.body.duplicate, true);
+  assert.equal(first.body.data.payment_method, 'COD');
+  assert.equal(first.body.data.payment_status, 'pending');
   assert.equal(repo.orders.length, 1);
+  const customerOrders = await request(app).get('/api/customer/orders').set('Cookie', customerAuth.cookie);
+  assert.equal(customerOrders.status, 200);
+  assert.equal(customerOrders.body.data.length, 1);
+  assert.equal(customerOrders.body.data[0].customer.houseStreet, '12 Market Road');
+  assert.equal(customerOrders.body.data[0].customer.locality, 'Central Bengaluru');
+  assert.equal(customerOrders.body.data[0].customer.landmark, 'Near the old market');
   const adminOrders = await adminRequest(app, auth, 'get', '/api/admin/orders');
   assert.equal(adminOrders.body.data[0].id, first.body.data.id);
-  assert.equal(adminOrders.body.data[0].customer.address, '12 Market Road');
+  assert.equal(adminOrders.body.data[0].customer.address, '12 Market Road, Central Bengaluru');
+});
+
+test('validates Indian mobile numbers and required new delivery address fields', async () => {
+  const { app, repo } = await setup();
+  const auth = await signIn(app);
+  const customerAuth = await customerSignIn(app);
+  const product = await adminRequest(app, auth, 'post', '/api/admin/products').send({ name: 'Delivery Validation Bowl', category: 'Brass', price: 500, stock: 3, variants: [], verificationStatus: 'verified' });
+  const base = { name: 'Asha', email: 'asha@example.com', phone: '9876543210', address: '12 Market Road, Central Bengaluru', houseStreet: '12 Market Road', locality: 'Central Bengaluru', city: 'Bengaluru', state: 'Karnataka', pin: '560001' };
+  const invalidMobile = await request(app).post('/api/orders').set('Cookie', customerAuth.cookie).send({ customer: { ...base, phone: '1234567890' }, paymentMethod: 'COD', items: [{ id: product.body.data.id, quantity: 1 }] });
+  assert.equal(invalidMobile.status, 400);
+  assert.match(invalidMobile.body.error, /Indian mobile/i);
+  const missingLocality = await request(app).post('/api/orders').set('Cookie', customerAuth.cookie).send({ customer: { ...base, locality: '' }, paymentMethod: 'COD', items: [{ id: product.body.data.id, quantity: 1 }] });
+  assert.equal(missingLocality.status, 400);
+  assert.match(missingLocality.body.error, /Area \/ Locality/i);
+  assert.equal(repo.orders.length, 0);
 });
 
 test('reports unavailable UPI configuration and requires evidence for manual verification', async () => {
@@ -365,7 +389,7 @@ test('reports unavailable UPI configuration and requires evidence for manual ver
     const config = await request(app).get('/api/payment/config');
     assert.deepEqual(config.body, { data: { enabled: false } });
     const product = await adminRequest(app, auth, 'post', '/api/admin/products').send({ name: 'Payment Test Plate', category: 'Copper', price: 500, stock: 2, variants: [], verificationStatus: 'verified' });
-    const order = await request(app).post('/api/orders').set('Cookie', customerAuth.cookie).send({ customer: { name: 'Asha', email: 'asha@example.com', phone: '9876543210', address: '12 Market Road', city: 'Bengaluru', state: 'Karnataka', pin: '560001' }, items: [{ id: product.body.data.id, quantity: 1 }] });
+    const order = await request(app).post('/api/orders').set('Cookie', customerAuth.cookie).send({ customer: { name: 'Asha', email: 'asha@example.com', phone: '9876543210', address: '12 Market Road, Central Bengaluru', houseStreet: '12 Market Road', locality: 'Central Bengaluru', city: 'Bengaluru', state: 'Karnataka', pin: '560001' }, items: [{ id: product.body.data.id, quantity: 1 }] });
     assert.equal(order.body.data.payment_status, 'not_configured');
     const blocked = await adminRequest(app, auth, 'post', `/api/admin/orders/${order.body.data.id}/payment/verify`).send({});
     assert.equal(blocked.status, 400);
@@ -577,7 +601,7 @@ test('customer orders are associated server-side and private to the signed-in cu
   const repo = new MemoryRepository({ customers: [{ id: 'c1', email: 'asha@example.com', password_hash: passwordHash, name: 'Asha Rao' }, { id: 'c2', email: 'bina@example.com', password_hash: passwordHash, name: 'Bina Das' }], products: [{ id: 'p1', name: 'Verified Bowl', category: 'Brass', price_inr: 900, stock: 3, active: true, verification_status: 'verified', image_path: null }] });
   const { app } = createApp({ repo, secret: 'test-secret' });
   const asha = await customerSignIn(app);
-  const order = await customerRequest(app, asha, 'post', '/api/orders').send({ customer: { name: 'Asha Rao', email: 'asha@example.com', phone: '9876543210', address: '12 Market Road', city: 'Bengaluru', state: 'Karnataka', pin: '560001' }, items: [{ id: 'p1', quantity: 1 }] });
+  const order = await customerRequest(app, asha, 'post', '/api/orders').send({ customer: { name: 'Asha Rao', email: 'asha@example.com', phone: '9876543210', address: '12 Market Road, Central Bengaluru', houseStreet: '12 Market Road', locality: 'Central Bengaluru', city: 'Bengaluru', state: 'Karnataka', pin: '560001' }, items: [{ id: 'p1', quantity: 1 }] });
   assert.equal(order.status, 201);
   assert.equal(order.body.data.customer_id, 'c1');
   const ownOrders = await request(app).get('/api/customer/orders').set('Cookie', asha.cookie);

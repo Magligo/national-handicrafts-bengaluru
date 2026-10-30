@@ -24,7 +24,12 @@ function useCart() {
     const snapshot = { id: product.id, name: product.name, category: product.category, price_inr: product.price_inr, stock: product.stock, image_path: product.image_path || null };
     return existing ? current.map((item) => item.id === product.id ? { ...item, ...snapshot, quantity: nextQuantity } : item) : [...current, { ...snapshot, quantity: 1 }];
   });
-  const setQuantity = (id, quantity) => setCart((current) => current.map((item) => item.id === id ? { ...item, quantity: Math.max(1, Math.floor(quantity)) } : item));
+  const setQuantity = (id, change) => setCart((current) => current.map((item) => {
+    if (item.id !== id) return item;
+    if (item.stock === 0) return item;
+    const requested = Math.max(1, item.quantity + Math.trunc(Number(change) || 0));
+    return { ...item, quantity: item.stock == null ? requested : Math.min(requested, item.stock) };
+  }));
   const removeFromCart = (id) => setCart((current) => current.filter((item) => item.id !== id));
   const clearCart = () => setCart([]);
   const reconcile = (products) => setCart((current) => { const byId = new Map(products.map((product) => [product.id, product])); return current.map((item) => { const product = byId.get(item.id); if (!product) return null; const quantity = product.stock == null ? item.quantity : Math.min(item.quantity, product.stock); return { ...item, ...product, quantity }; }).filter((item) => item && item.quantity > 0); });
@@ -38,6 +43,7 @@ function App() {
   const [navigationKey, setNavigationKey] = useState(0);
   const [selectedProductId, setSelectedProductId] = useState(params.get('product'));
   const [checkoutItems, setCheckoutItems] = useState([]);
+  const [checkoutFromCart, setCheckoutFromCart] = useState(false);
   const [skipNextCustomerSessionCheck, setSkipNextCustomerSessionCheck] = useState(false);
   const [checkoutSessionVerified, setCheckoutSessionVerified] = useState(false);
   const [products, setProducts] = useState([]);
@@ -53,17 +59,17 @@ function App() {
   useEffect(() => { if (catalogueState !== 'loading') setShowSplash(false); }, [catalogueState]);
   const navigate = (nextPage) => { const landingPage = ['home', 'products'].includes(nextPage); setPage(nextPage); setNavigationKey((key) => key + 1); if (nextPage !== 'detail') setSelectedProductId(null); if (landingPage) history.pushState({}, '', nextPage === 'home' ? location.pathname : `${location.pathname}#${nextPage}`); else if (nextPage === 'profile') history.pushState({}, '', '/profile'); else if (nextPage === 'admin') history.pushState({}, '', '/admin'); else if (['about', 'contact', 'cart'].includes(nextPage)) history.pushState({}, '', `${location.pathname}?page=${nextPage}`); };
   const openProduct = (id) => { setSelectedProductId(id); setPage('detail'); history.pushState({}, '', `${location.pathname}?product=${encodeURIComponent(id)}`); };
-  const requireCheckout = async (items) => { try { await api('/customer/auth/me'); setCheckoutSessionVerified(true); setCheckoutItems(items); navigate('checkout'); } catch { setCheckoutSessionVerified(false); setSkipNextCustomerSessionCheck(true); setCheckoutItems(items); sessionStorage.setItem('nh_return_to_checkout', '1'); navigate('profile'); } };
+  const requireCheckout = async (items, { fromCart = false } = {}) => { setCheckoutItems(items); setCheckoutFromCart(fromCart); try { await api('/customer/auth/me'); setCheckoutSessionVerified(true); navigate('checkout'); } catch { setCheckoutSessionVerified(false); setSkipNextCustomerSessionCheck(true); sessionStorage.setItem('nh_return_to_checkout', '1'); navigate('profile'); } };
   const buyNow = (product) => requireCheckout([{ id: product.id, name: product.name, category: product.category, price_inr: product.price_inr, stock: product.stock, image_path: product.image_path || null, quantity: 1 }]);
-  const checkoutCart = () => requireCheckout(cart);
+  const checkoutCart = () => requireCheckout(cart, { fromCart: true });
   return <><ScrollToTop page={page} pathname={location.pathname} navigationKey={navigationKey} />{showSplash && <LoadingScreen />}<SiteNavigationV2 page={page} setPage={navigate} cartCount={cart.reduce((sum, item) => sum + item.quantity, 0)} searchQuery={searchQuery} setSearchQuery={setSearchQuery} /><main>
     {['home', 'products'].includes(page) && <><LandingHero setPage={navigate} /><div id="products" className="scroll-section"><ProductsSection products={products} refresh={refresh} openProduct={openProduct} addToCart={addToCart} buyNow={buyNow} catalogueState={catalogueState} catalogueError={catalogueError} searchQuery={searchQuery} setSearchQuery={setSearchQuery} /></div></>}
     {page === 'about' && <div id="about" className="scroll-section"><About /></div>}
     {page === 'detail' && <ProductDetailV2 id={selectedProductId} setPage={navigate} addToCart={addToCart} buyNow={buyNow} />}
     {page === 'contact' && <Contact />}
     {page === 'profile' && <CustomerProfile setPage={navigate} skipInitialSessionCheck={skipNextCustomerSessionCheck} clearSkipInitialSessionCheck={() => setSkipNextCustomerSessionCheck(false)} />}
-    {page === 'cart' && <ProtectedCheckout setPage={navigate} setSkipNextCustomerSessionCheck={setSkipNextCustomerSessionCheck} items={cart} setQuantity={setQuantity} clearCart={clearCart} isCart />}
-    {page === 'checkout' && <ProtectedCheckout setPage={navigate} setSkipNextCustomerSessionCheck={setSkipNextCustomerSessionCheck} sessionVerified={checkoutSessionVerified} items={checkoutItems} setQuantity={setQuantity} />}
+    {page === 'cart' && <Cart setPage={navigate} onCheckout={checkoutCart} cart={cart} setQuantity={setQuantity} removeFromCart={removeFromCart} clearCart={clearCart} />}
+    {page === 'checkout' && <ProtectedCheckout setPage={navigate} setSkipNextCustomerSessionCheck={setSkipNextCustomerSessionCheck} sessionVerified={checkoutSessionVerified} items={checkoutItems} clearCart={clearCart} isCart={checkoutFromCart} />}
     {page === 'admin' && <Suspense fallback={<section className="section admin-page"><LoadingState label="Loading the admin portal…" /></section>}><AdminPortal refresh={refresh} /></Suspense>}
   </main><Footer setPage={navigate} /></>;
 }
@@ -154,8 +160,125 @@ function LegacyProductCard({ product, openProduct, addToCart, buyNow }) { const 
 function LegacyProducts({ products, refresh, openProduct, addToCart, buyNow, catalogueState, catalogueError }) { const [q, setQ] = useState(''); const [category, setCategory] = useState(''); const filtered = products.filter((p) => (!category || p.category === category) && (!q || `${p.name} ${p.category}`.toLowerCase().includes(q.toLowerCase()))); return <section className="section products-page"><div className="page-heading"><div><p className="eyebrow">THE CATALOGUE</p><h1>Find a piece with presence.</h1></div><p>Only active, verified products appear in this customer-facing collection.</p></div><div className="toolbar"><input aria-label="Search products" placeholder="Search products" value={q} onChange={(e) => setQ(e.target.value)} /><select aria-label="Filter by category" value={category} onChange={(e) => setCategory(e.target.value)}><option value="">All categories</option>{categories.map((c) => <option key={c}>{c}</option>)}</select><button className="text-button" onClick={refresh}>Refresh</button></div>{catalogueState === 'loading' ? <LoadingState /> : catalogueState === 'error' ? <ErrorState onRetry={refresh} message={catalogueError} /> : filtered.length ? <div className="product-grid">{filtered.map((product) => <ProductCard key={product.id} product={product} openProduct={openProduct} addToCart={addToCart} buyNow={buyNow} />)}</div> : <div className="verified-empty"><p>No matching verified products.</p><span>Product records added and verified in the admin portal appear here automatically.</span></div>}</section>; }
 function Products({ products, refresh, openProduct, addToCart, buyNow, catalogueState, catalogueError, searchQuery, setSearchQuery }) { const [category, setCategory] = useState(''); const [filtersOpen, setFiltersOpen] = useState(false); const filtered = products.filter((p) => (!category || p.category === category) && (!searchQuery || `${p.name} ${p.category}`.toLowerCase().includes(searchQuery.toLowerCase()))); return <section className="section products-page"><div className="page-heading"><div><p className="eyebrow">THE CATALOGUE</p><h1>Find a piece with presence.</h1></div><p>Only active, verified products appear in this customer-facing collection.</p></div><div className="toolbar"><label className="product-search"><span aria-hidden="true">⌕</span><input aria-label="Search products" placeholder="Search products" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} /></label><button className="filter-toggle" type="button" aria-expanded={filtersOpen} onClick={() => setFiltersOpen((value) => !value)}>Filters <span aria-hidden="true">{filtersOpen ? '−' : '+'}</span></button><button className="text-button product-refresh" onClick={refresh}>Refresh</button></div><div className="category-chips" aria-label="Product categories"><button className={!category ? 'active' : ''} onClick={() => setCategory('')}>All</button>{categories.map((c) => <button className={category === c ? 'active' : ''} key={c} onClick={() => setCategory(c)}>{c}</button>)}</div>{filtersOpen && <div className="mobile-filter-panel"><label htmlFor="product-category-filter">Category<select id="product-category-filter" aria-label="Filter by category" value={category} onChange={(e) => setCategory(e.target.value)}><option value="">All categories</option>{categories.map((c) => <option key={c}>{c}</option>)}</select></label><button className="button secondary" type="button" onClick={() => setFiltersOpen(false)}>Done</button></div>}{catalogueState === 'loading' ? <LoadingState /> : catalogueState === 'error' ? <ErrorState onRetry={refresh} message={catalogueError} /> : filtered.length ? <div className="product-grid">{filtered.map((product) => <ProductCard key={product.id} product={product} openProduct={openProduct} addToCart={addToCart} buyNow={buyNow} />)}</div> : <div className="verified-empty"><p>No matching verified products.</p><span>Product records added and verified in the admin portal appear here automatically.</span></div>}</section>; }
 function ProductDetail({ id, setPage, addToCart, buyNow }) { const [state, setState] = useState({ status: 'loading', product: null, error: '' }); const load = () => { if (!id) { setState({ status: 'error', product: null, error: 'Product not found.' }); return; } setState({ status: 'loading', product: null, error: '' }); api(`/products/${encodeURIComponent(id)}`).then((response) => setState({ status: 'ready', product: response.data, error: '' })).catch((error) => setState({ status: 'error', product: null, error: error.message })); }; useEffect(load, [id]); if (state.status === 'loading') return <section className="section"><LoadingState label="Loading product details…" /></section>; if (state.status === 'error') return <section className="section page-content"><p className="eyebrow">PRODUCT DETAILS</p><h1>That piece is not available.</h1><p className="lede">{state.error || 'This product may have been unpublished or could not be found.'}</p><button className="button secondary" onClick={() => setPage('products')}>Back to catalogue</button><button className="text-button detail-retry" onClick={load}>Try again</button></section>; const product = state.product; const canBuy = product.stock !== 0 && product.price_inr != null; return <section className="section detail-page"><button className="back-link" onClick={() => setPage('products')}>← Back to catalogue</button><div className="detail-grid"><div className="detail-image"><SafeImage src={imageUrl(product.image_path)} alt={product.name} /></div><div className="detail-copy"><p className="eyebrow">{product.category}</p><h1>{product.name}</h1><p className="price-large">{formatPrice(product.price_inr)}</p>{product.description && <p className="lede">{product.description}</p>}<div className="verification"><span>{product.stock === 0 ? 'Currently out of stock' : 'Available to order'}</span><small>Published from a verified catalogue record.</small></div><div className="detail-actions"><button className="button secondary" disabled={!canBuy} onClick={() => addToCart(product)}>{canBuy ? 'Add to cart' : 'Unavailable'}</button><button className="button primary" disabled={!canBuy} onClick={() => buyNow(product)}>{canBuy ? 'Buy now' : 'Price unavailable'}</button></div><p className="fine-print">Payment remains pending until independently verified by the administrator. No payment credentials are stored.</p></div></div></section>; }
-function Cart({ setPage, cart, setQuantity, removeFromCart, clearCart }) { const [customer, setCustomer] = useState({ name: '', email: '', phone: '', message: '' }); const [status, setStatus] = useState({ type: 'idle', message: '' }); const subtotal = cart.some((item) => item.price_inr == null) ? null : cart.reduce((sum, item) => sum + Number(item.price_inr) * item.quantity, 0); const updateQuantity = (item, amount) => { const next = item.quantity + amount; if (next < 1 || (item.stock != null && next > item.stock)) return; setQuantity(item.id, next); }; const submit = async (event) => { event.preventDefault(); setStatus({ type: 'submitting', message: '' }); try { const response = await api('/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ customer, items: cart.map((item) => ({ id: item.id, quantity: item.quantity })) }) }); clearCart(); setStatus({ type: 'success', message: `Your enquiry ${response.data.id} has been received. We will confirm availability and pricing separately.` }); } catch (error) { setStatus({ type: 'error', message: error.message }); } }; return <section className="section cart-page"><p className="eyebrow">CART AND ENQUIRY</p><h1>{cart.length ? 'Review your pieces.' : 'Your cart is quiet for now.'}</h1>{status.type === 'success' ? <div className="success-state" role="status"><p>{status.message}</p><button className="button secondary" onClick={() => setPage('products')}>Continue browsing</button></div> : cart.length ? <div className="cart-layout"><div><div className="cart-items">{cart.map((item) => <div className="cart-item" key={item.id}><SafeImage src={imageUrl(item.image_path) || categoryImages[item.category]} alt={item.name} /><div><p className="eyebrow">{item.category}</p><h3>{item.name}</h3><span>{formatPrice(item.price_inr)}</span><div className="quantity"><button aria-label={`Decrease quantity of ${item.name}`} onClick={() => updateQuantity(item, -1)}>−</button><span>{item.quantity}</span><button aria-label={`Increase quantity of ${item.name}`} disabled={item.stock != null && item.quantity >= item.stock} onClick={() => updateQuantity(item, 1)}>+</button></div></div><button className="remove" onClick={() => removeFromCart(item.id)}>Remove</button></div>)}</div><button className="text-button" onClick={clearCart}>Clear cart</button></div><div className="summary"><h2>Enquire about these pieces</h2><div><span>Items</span><span>{cart.reduce((sum, item) => sum + item.quantity, 0)}</span></div><div><span>Subtotal</span><b>{formatPrice(subtotal)}</b></div><p className="fine-print">The server recalculates the order from current verified catalogue prices. This displayed subtotal is only an estimate.</p><form className="checkout-form" onSubmit={submit}><label>Name<input required value={customer.name} onChange={(e) => setCustomer({ ...customer, name: e.target.value })} /></label><label>Email<input required type="email" value={customer.email} onChange={(e) => setCustomer({ ...customer, email: e.target.value })} /></label><label>Phone <span>(optional)</span><input value={customer.phone} onChange={(e) => setCustomer({ ...customer, phone: e.target.value })} /></label><label>Message <span>(optional)</span><textarea rows="3" value={customer.message} onChange={(e) => setCustomer({ ...customer, message: e.target.value })} /></label>{status.type === 'error' && <p className="form-error" role="alert">{status.message}</p>}<button className="button primary" disabled={status.type === 'submitting'}>{status.type === 'submitting' ? 'Sending enquiry…' : 'Send enquiry'}</button></form></div></div> : <div className="empty-state"><p>Your saved cart has no verified pieces yet.</p><button className="button secondary" onClick={() => setPage('products')}>Browse catalogue</button></div>}</section>; }
-function Checkout({ setPage, items, setQuantity, clearCart, isCart = false }) { const [customer, setCustomer] = useState({ name: '', phone: '', email: '', address: '', city: '', state: '', pin: '', instructions: '' }); const [status, setStatus] = useState({ type: 'idle', message: '' }); const [order, setOrder] = useState(null); const subtotal = items.some((item) => item.price_inr == null) ? null : items.reduce((sum, item) => sum + Number(item.price_inr) * item.quantity, 0); const update = (key, value) => setCustomer((current) => ({ ...current, [key]: value })); const adjust = (item, amount) => { const next = item.quantity + amount; if (next < 1 || (item.stock != null && next > item.stock)) return; setQuantity(item.id, next); }; const submit = async (event) => { event.preventDefault(); if (!items.length) return; setStatus({ type: 'submitting', message: '' }); const idempotencyKey = crypto.randomUUID(); try { const response = await api('/orders', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ customer, paymentMethod: 'COD', items: items.map((item) => ({ id: item.id, quantity: item.quantity })) }) }); setOrder(response.data); if (isCart) clearCart?.(); setStatus({ type: 'success', message: '' }); } catch (error) { setStatus({ type: 'error', message: error.message }); } }; if (order) return <section className="section checkout-page"><p className="eyebrow">ORDER RECEIVED</p><h1>Thank you. Your order is reserved.</h1><div className="success-state"><p>Order reference: <strong>{order.id}</strong></p><p>Payment method: <strong>Cash on Delivery</strong></p><p>Payment status: <strong>Pending — payment is collected on delivery for COD orders.</strong></p></div><button className="button secondary" onClick={() => setPage('products')}>Continue browsing</button></section>; if (!items.length) return <section className="section empty-state"><p>Your checkout has no verified pieces.</p><button className="button secondary" onClick={() => setPage('products')}>Browse catalogue</button></section>; return <section className="section checkout-page"><p className="eyebrow">SECURE CHECKOUT</p><h1>{isCart ? 'Review your order.' : 'Complete your order.'}</h1><div className="checkout-layout"><div className="checkout-summary"><h2>Order summary</h2>{items.map((item) => <div className="checkout-item" key={item.id}><SafeImage src={imageUrl(item.image_path) || categoryImages[item.category]} alt={item.name} /><div><strong>{item.name}</strong><span>{formatPrice(item.price_inr)} each</span><div className="quantity"><button type="button" onClick={() => adjust(item, -1)}>−</button><span>{item.quantity}</span><button type="button" onClick={() => adjust(item, 1)} disabled={item.stock != null && item.quantity >= item.stock}>+</button></div></div></div>)}<div className="summary-total"><span>Total</span><strong>{formatPrice(subtotal)}</strong></div><p className="fine-print">The server recalculates prices and stock when this order is submitted.</p></div><form className="checkout-form checkout-details" onSubmit={submit}><h2>Delivery details</h2><label>Full name<input required value={customer.name} onChange={(e) => update('name', e.target.value)} /></label><label>Mobile number<input required inputMode="tel" value={customer.phone} onChange={(e) => update('phone', e.target.value)} /></label><label>Email address<input required type="email" value={customer.email} onChange={(e) => update('email', e.target.value)} /></label><label>Delivery address<textarea required rows="3" value={customer.address} onChange={(e) => update('address', e.target.value)} /></label><div className="checkout-two-column"><label>City<input required value={customer.city} onChange={(e) => update('city', e.target.value)} /></label><label>State<input required value={customer.state} onChange={(e) => update('state', e.target.value)} /></label></div><label>PIN code<input required inputMode="numeric" pattern="[0-9]{6}" maxLength="6" value={customer.pin} onChange={(e) => update('pin', e.target.value)} /></label><label>Delivery instructions <span>(optional)</span><textarea rows="2" value={customer.instructions} onChange={(e) => update('instructions', e.target.value)} /></label><fieldset className="payment-choice"><legend>Payment method</legend><label className="cod-choice"><input type="radio" name="paymentMethod" value="COD" checked readOnly /> <span><strong>Cash on Delivery</strong><small>Pay when your order arrives.</small></span></label></fieldset>{status.type === 'error' && <p className="form-error" role="alert">{status.message}</p>}<button className="button primary" disabled={status.type === 'submitting'}>{status.type === 'submitting' ? 'Creating order…' : 'Place COD order'}</button></form></div></section>; }
+function Cart({ setPage, onCheckout, cart, setQuantity, removeFromCart, clearCart }) {
+  const subtotal = cart.some((item) => item.price_inr == null)
+    ? null
+    : cart.reduce((sum, item) => sum + Number(item.price_inr) * item.quantity, 0);
+  const updateQuantity = (item, amount) => {
+    setQuantity(item.id, amount);
+  };
+  const removeItem = (item) => {
+    if (window.confirm(`Remove ${item.name} from your cart?`)) removeFromCart(item.id);
+  };
+  return <section className="section cart-page">
+    <p className="eyebrow">YOUR CART</p>
+    <h1>{cart.length ? 'Review your pieces.' : 'Your cart is quiet for now.'}</h1>
+    {cart.length ? <div className="cart-layout">
+      <div className="cart-list-column">
+        <div className="cart-items">{cart.map((item) => <article className="cart-item" key={item.id}>
+          <SafeImage src={imageUrl(item.image_path) || categoryImages[item.category]} alt={item.name} />
+          <div className="cart-item-details">
+            <p className="eyebrow">{item.category}</p>
+            <h2>{item.name}</h2>
+            <span className="cart-unit-price">{formatPrice(item.price_inr)} each</span>
+            <div className="quantity" aria-label={`Quantity for ${item.name}`}>
+              <button type="button" aria-label={`Decrease quantity of ${item.name}`} disabled={item.quantity <= 1} onClick={() => updateQuantity(item, -1)}><svg className="quantity-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg></button>
+              <span aria-live="polite">{item.quantity}</span>
+              <button type="button" aria-label={`Increase quantity of ${item.name}`} disabled={item.stock != null && item.quantity >= item.stock} onClick={() => updateQuantity(item, 1)}><svg className="quantity-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M12 5v14" /></svg></button>
+            </div>
+          </div>
+          <div className="cart-item-end">
+            <strong className="cart-line-total">{item.price_inr == null ? 'Price on request' : formatPrice(Number(item.price_inr) * item.quantity)}</strong>
+            <button type="button" className="cart-remove" aria-label={`Remove ${item.name} from cart`} onClick={() => removeItem(item)}>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-.8 13H6.8L6 7m4 3v6m4-6v6" /></svg>
+              <span>Remove</span>
+            </button>
+          </div>
+        </article>)}</div>
+        <button type="button" className="text-button cart-clear" onClick={() => { if (window.confirm('Remove all pieces from your cart?')) clearCart(); }}>Clear cart</button>
+      </div>
+      <aside className="cart-summary">
+        <p className="eyebrow">ORDER SUMMARY</p>
+        <div><span>Items</span><span>{cart.reduce((sum, item) => sum + item.quantity, 0)}</span></div>
+        <div><span>Subtotal</span><strong>{formatPrice(subtotal)}</strong></div>
+        <div className="cart-total"><span>Total</span><strong>{formatPrice(subtotal)}</strong></div>
+        <p className="fine-print">Final availability and prices are verified against the catalogue when your order is placed.</p>
+        <button type="button" className="button primary" onClick={onCheckout}>Proceed to Checkout <svg className="cart-continue-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h15m-6-6 6 6-6 6" /></svg></button>
+        <button type="button" className="text-button cart-continue" onClick={() => setPage('products')}>Continue shopping</button>
+      </aside>
+    </div> : <div className="empty-state cart-empty">
+      <div className="cart-empty-mark" aria-hidden="true"><svg viewBox="0 0 32 32"><path d="M16 3v26M3 16h26M6.8 6.8l18.4 18.4M25.2 6.8 6.8 25.2" /></svg></div>
+      <h2>Your saved cart has no pieces yet.</h2>
+      <p>Explore the verified collection and keep the pieces you love here.</p>
+      <button type="button" className="button primary" onClick={() => setPage('products')}>Continue Shopping</button>
+    </div>}
+  </section>;
+}
+function Checkout({ setPage, items, clearCart, isCart = false }) {
+  const [customer, setCustomer] = useState({ name: '', phone: '', email: '', houseStreet: '', locality: '', city: '', state: '', pin: '', landmark: '' });
+  const [status, setStatus] = useState({ type: 'idle', message: '' });
+  const [order, setOrder] = useState(null);
+  const submissionInFlight = useRef(false);
+  const idempotencyKey = useRef(null);
+  const subtotal = items.some((item) => item.price_inr == null)
+    ? null
+    : items.reduce((sum, item) => sum + Number(item.price_inr) * item.quantity, 0);
+  const update = (key, value) => setCustomer((current) => ({ ...current, [key]: value }));
+  const submit = async (event) => {
+    event.preventDefault();
+    if (!items.length || submissionInFlight.current) return;
+    if (!window.confirm(`Place this Cash on Delivery order for ${formatPrice(subtotal)}?`)) return;
+    submissionInFlight.current = true;
+    setStatus({ type: 'submitting', message: '' });
+    idempotencyKey.current ||= crypto.randomUUID();
+    const address = [customer.houseStreet.trim(), customer.locality.trim()].filter(Boolean).join(', ');
+    const orderCustomer = { ...customer, address };
+    try {
+      const response = await api('/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey.current },
+        body: JSON.stringify({ customer: orderCustomer, paymentMethod: 'COD', items: items.map((item) => ({ id: item.id, quantity: item.quantity })) }),
+      });
+      setOrder(response.data);
+      if (isCart) clearCart?.();
+      setStatus({ type: 'success', message: '' });
+    } catch (error) {
+      setStatus({ type: 'error', message: error.message });
+    } finally {
+      submissionInFlight.current = false;
+    }
+  };
+  if (order) return <section className="section checkout-page"><p className="eyebrow">ORDER RECEIVED</p><h1>Thank you. Your order is reserved.</h1><div className="success-state"><p>Order reference: <strong>{order.id}</strong></p><p>Payment method: <strong>Cash on Delivery</strong></p><p>Payment status: <strong>Pending. Payment is collected on delivery for COD orders.</strong></p></div><button className="button secondary" onClick={() => setPage('products')}>Continue browsing</button><button className="text-button checkout-account-link" onClick={() => setPage('profile')}>View your account</button></section>;
+  if (!items.length) return <section className="section empty-state"><p>Your checkout has no verified pieces.</p><button className="button secondary" onClick={() => setPage('products')}>Browse catalogue</button></section>;
+  return <section className="section checkout-page">
+    <button type="button" className="checkout-back" onClick={() => setPage(isCart ? 'cart' : 'products')}><svg className="checkout-back-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12H5m6 6-6-6 6-6" /></svg>{isCart ? 'Back to cart' : 'Back to collection'}</button>
+    <p className="eyebrow">SECURE CHECKOUT</p><h1>Complete your order.</h1>
+    <div className="checkout-layout">
+      <div className="checkout-summary"><h2>Order summary</h2>
+        {items.map((item) => <div className="checkout-item" key={item.id}>
+          <SafeImage src={imageUrl(item.image_path) || categoryImages[item.category]} alt={item.name} />
+          <div><strong>{item.name}</strong><span>{formatPrice(item.price_inr)} each | Quantity {item.quantity}</span><b>{item.price_inr == null ? 'Price on request' : formatPrice(Number(item.price_inr) * item.quantity)}</b></div>
+        </div>)}
+        <div className="summary-total"><span>Total</span><strong>{formatPrice(subtotal)}</strong></div>
+        <p className="fine-print">The server verifies current catalogue prices and stock before creating your order.</p>
+      </div>
+      <form className="checkout-form checkout-details" onSubmit={submit}>
+        <h2>Delivery details</h2>
+        <label>Full name<input required autoComplete="name" maxLength="160" value={customer.name} onChange={(event) => update('name', event.target.value)} /></label>
+        <label>Mobile number<input required type="tel" inputMode="tel" autoComplete="tel" pattern="(?:\+91[ -]?)?[6-9][0-9]{9}" title="Enter a valid 10-digit Indian mobile number, optionally prefixed by +91." value={customer.phone} onChange={(event) => update('phone', event.target.value)} /></label>
+        <label>Email address<input required type="email" autoComplete="email" value={customer.email} onChange={(event) => update('email', event.target.value)} /></label>
+        <label>House number / Street address<input required autoComplete="address-line1" maxLength="300" value={customer.houseStreet} onChange={(event) => update('houseStreet', event.target.value)} /></label>
+        <label>Area / Locality<input required autoComplete="address-line2" maxLength="200" value={customer.locality} onChange={(event) => update('locality', event.target.value)} /></label>
+        <div className="checkout-two-column"><label>City<input required autoComplete="address-level2" maxLength="100" value={customer.city} onChange={(event) => update('city', event.target.value)} /></label><label>State<input required autoComplete="address-level1" maxLength="100" value={customer.state} onChange={(event) => update('state', event.target.value)} /></label></div>
+        <label>PIN code<input required inputMode="numeric" autoComplete="postal-code" pattern="[0-9]{6}" maxLength="6" title="Enter a 6-digit PIN code." value={customer.pin} onChange={(event) => update('pin', event.target.value)} /></label>
+        <label>Landmark <span>(optional)</span><input autoComplete="off" maxLength="200" value={customer.landmark} onChange={(event) => update('landmark', event.target.value)} /></label>
+        <fieldset className="payment-choice"><legend>Payment method</legend><label className="cod-choice"><input type="radio" name="paymentMethod" value="COD" checked readOnly /> <span><strong>Cash on Delivery</strong><small>Pay when your order arrives.</small></span></label></fieldset>
+        {status.type === 'error' && <p className="form-error" role="alert">{status.message}</p>}
+        <button className="button primary" disabled={status.type === 'submitting'}>{status.type === 'submitting' ? 'Placing your order...' : 'Place Order'}</button>
+      </form>
+    </div>
+  </section>;
+}
 function PaymentPanel({ order, payment }) { const [qr, setQr] = useState(''); const configured = payment?.enabled && order?.payment_status !== 'not_configured' && order?.payment_method !== 'COD'; const intent = configured ? `upi://pay?${new URLSearchParams({ pa: payment.upiId, pn: payment.payeeName, am: String(order.total_inr), cu: 'INR', tn: order.id }).toString()}` : ''; useEffect(() => { if (intent) QRCode.toDataURL(intent, { margin: 1, width: 220 }).then(setQr).catch(() => setQr('')); }, [intent]); if (order?.payment_method === 'COD') return <p className="payment-not-configured">Your order is confirmed for Cash on Delivery. Payment remains pending until collected when the order arrives.</p>; if (!configured) return <p className="payment-not-configured">Online payment is not configured yet. Your order is recorded, and the administrator can contact you with the next steps.</p>; return <div className="payment-panel"><h2>Pay by UPI</h2><p>Pay <strong>{formatPrice(order.total_inr)}</strong> to <strong>{payment.payeeName}</strong>.</p><p className="payment-reference">Reference: <strong>{order.id}</strong></p>{qr && <img className="payment-qr" src={qr} alt="UPI payment QR code" />}<div className="payment-actions"><a className="button primary" href={intent}>Open UPI app</a><button className="button secondary" onClick={() => navigator.clipboard?.writeText(payment.upiId)}>Copy UPI ID</button></div><p className="fine-print">Payment remains pending until independently verified by National Handicrafts. Opening the app, scanning this QR code, or sharing a screenshot does not mark the order paid.</p></div>; }
 function Admin({ refresh }) { return null; }
 function Contact() { return <section className="section page-content"><p className="eyebrow">CONTACT</p><h1>Catalogue enquiries are open through your cart.</h1><p className="lede">Add verified pieces to your cart and send an enquiry with your contact details. Verified business contact details were not supplied in the source materials, so this site does not invent them.</p></section>; }

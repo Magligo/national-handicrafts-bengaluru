@@ -336,6 +336,63 @@ test('order total uses the server product price, not the client price', async ()
   assert.equal(repo.orders[0].items[0].unitPriceInr, 700);
 });
 
+test('verified product variants hide unreviewed rates and order using the selected database variant', async () => {
+  const { app, repo } = await setup();
+  const auth = await signIn(app);
+  const customerAuth = await customerSignIn(app);
+  const created = await adminRequest(app, auth, 'post', '/api/admin/products').send({
+    name: 'Brass Lota', category: 'Brass', price: 1234, stock: 99, verificationStatus: 'verified',
+    specifications: { brand: 'Surya Prakash', countryOfOrigin: 'India', countryOfOriginVerified: false, sourceReviewStatus: 'verified', material: 'Brass', diameter: '4' },
+    variants: [
+      { id: 'size-6', name: 'Number 6', size: '6', price_inr: 450, stock: 2, availability: 'available', source_review_status: 'unreviewed' },
+      { id: 'size-8', name: 'Number 8', size: '8', price_inr: 700, stock: 3, availability: 'available', source_review_status: 'verified' },
+    ],
+  });
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  const detail = await request(app).get(`/api/products/${created.body.data.id}`);
+  assert.equal(detail.body.data.price_inr, null, 'parent price must not replace option prices');
+  assert.equal(detail.body.data.variants[0].price_inr, null, 'unreviewed rates are not published');
+  assert.equal(detail.body.data.variants[0].size, undefined, 'unreviewed size details are not published');
+  assert.equal(detail.body.data.variants[1].price_inr, 700);
+  assert.equal(detail.body.data.specifications.countryOfOrigin, undefined);
+  const checkout = { customer: { name: 'Asha', email: 'asha@example.com', phone: '9876543210', address: '12 Market Road, Central Bengaluru', houseStreet: '12 Market Road', locality: 'Central Bengaluru', city: 'Bengaluru', state: 'Karnataka', pin: '560001' }, paymentMethod: 'COD' };
+  const pending = await request(app).post('/api/orders').set('Cookie', customerAuth.cookie).send({ ...checkout, items: [{ id: created.body.data.id, variantId: 'size-6', quantity: 1, price: 1 }] });
+  assert.equal(pending.status, 400);
+  assert.match(pending.body.error, /review/i);
+  const order = await request(app).post('/api/orders').set('Cookie', customerAuth.cookie).set('Idempotency-Key', 'variant-order').send({ ...checkout, items: [{ id: created.body.data.id, variantId: 'size-8', quantity: 2, price: 1 }] });
+  assert.equal(order.status, 201, JSON.stringify(order.body));
+  assert.equal(order.body.data.total_inr, 1400);
+  assert.equal(order.body.data.items[0].unitPriceInr, 700);
+  assert.equal(order.body.data.items[0].variant.size, '8');
+  assert.equal(repo.orders[0].items[0].variantId, 'size-8');
+});
+
+test('rejects a variant order that exceeds its own stock even when parent stock is higher', async () => {
+  const { app } = await setup();
+  const auth = await signIn(app);
+  const customerAuth = await customerSignIn(app);
+  const product = await adminRequest(app, auth, 'post', '/api/admin/products').send({ name: 'Variant Stock Test', category: 'Brass', verificationStatus: 'verified', variants: [{ id: 'low-stock', name: 'Small', price: 200, stock: 1, availability: 'available', source_review_status: 'verified' }] });
+  const response = await request(app).post('/api/orders').set('Cookie', customerAuth.cookie).send({ customer: { name: 'Asha', email: 'asha@example.com', phone: '9876543210', address: '12 Market Road, Central Bengaluru', houseStreet: '12 Market Road', locality: 'Central Bengaluru', city: 'Bengaluru', state: 'Karnataka', pin: '560001' }, items: [{ id: product.body.data.id, variantId: 'low-stock', quantity: 2 }] });
+  assert.equal(response.status, 400);
+  assert.match(response.body.error, /stock/i);
+});
+
+test('admin can edit and remove individual product variants without creating another product', async () => {
+  const { app, repo } = await setup();
+  const auth = await signIn(app);
+  const created = await adminRequest(app, auth, 'post', '/api/admin/products').send({ name: 'Variant Editing', category: 'Brass', variants: [{ id: 'small', name: 'Small', price: 300, stock: 2 }, { id: 'large', name: 'Large', price: 600, stock: 4 }] });
+  assert.equal(created.status, 201);
+  const changed = await adminRequest(app, auth, 'patch', `/api/admin/products/${created.body.data.id}`).send({ variants: [{ id: 'small', name: 'Small', price_inr: 350, stock: 1, availability: 'available', source_review_status: 'verified' }] });
+  assert.equal(changed.status, 200);
+  assert.equal(changed.body.data.variants.length, 1);
+  assert.equal(changed.body.data.variants[0].price_inr, 350);
+  assert.equal(repo.products.length, 1);
+  const removed = await adminRequest(app, auth, 'patch', `/api/admin/products/${created.body.data.id}`).send({ variants: [] });
+  assert.equal(removed.status, 200);
+  assert.deepEqual(removed.body.data.variants, []);
+  assert.equal(repo.products.length, 1);
+});
+
 test('product details expose verified products and hide pending products', async () => {
   const { app } = await setup();
   const auth = await signIn(app);

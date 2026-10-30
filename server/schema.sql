@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS products (
   price_inr INTEGER,
   discount_percent NUMERIC(5,2),
   variants JSONB NOT NULL DEFAULT '[]',
+  specifications JSONB NOT NULL DEFAULT '{}'::jsonb,
   stock INTEGER,
   unit TEXT,
   dimensions TEXT,

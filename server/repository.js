@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 
 const { Pool } = pg;
-const productFields = ['sku', 'creation_idempotency_key', 'name', 'category', 'description', 'price_inr', 'discount_percent', 'variants', 'stock', 'unit', 'dimensions', 'weight', 'material', 'finish', 'availability', 'image_path', 'image_paths', 'source_catalogue', 'source_page', 'verification_status', 'active'];
+const productFields = ['sku', 'creation_idempotency_key', 'name', 'category', 'description', 'price_inr', 'discount_percent', 'variants', 'specifications', 'stock', 'unit', 'dimensions', 'weight', 'material', 'finish', 'availability', 'image_path', 'image_paths', 'source_catalogue', 'source_page', 'verification_status', 'active'];
 
 export class MemoryRepository {
   constructor(seed = {}) { this.products = [...(seed.products || [])]; this.orders = [...(seed.orders || [])]; this.adminUsers = [...(seed.adminUsers || [])]; this.customers = [...(seed.customers || [])]; this.addresses = [...(seed.addresses || [])]; }
@@ -61,16 +61,16 @@ export class PostgresRepository {
   async listProducts({ admin = false, q = '', category = '' } = {}) { const visibility = admin ? '' : 'AND active = TRUE AND verification_status = \'verified\''; const r = await this.query(`SELECT * FROM products WHERE 1=1 ${visibility} AND ($1 = '' OR name ILIKE $2 OR category ILIKE $2 OR COALESCE(sku, '') ILIKE $2) AND ($3 = '' OR category = $3) ORDER BY name`, [q.trim(), `%${q.trim()}%`, category]); return r.rows; }
   async getProduct(id) { const r = await this.query('SELECT * FROM products WHERE id = $1', [id]); return r.rows[0] || null; }
   async getProductByCreationKey(key) { if (!key) return null; const r = await this.query('SELECT * FROM products WHERE creation_idempotency_key = $1', [key]); return r.rows[0] || null; }
-  async createProduct(p) { const r = await this.query(`INSERT INTO products (${productFields.join(',')}) VALUES (${productFields.map((_, i) => `$${i + 1}`).join(',')}) RETURNING *`, productFields.map((field) => field === 'variants' || field === 'image_paths' ? JSON.stringify(p[field] || []) : p[field] ?? null)); return r.rows[0]; }
+  async createProduct(p) { const r = await this.query(`INSERT INTO products (${productFields.join(',')}) VALUES (${productFields.map((_, i) => `$${i + 1}`).join(',')}) RETURNING *`, productFields.map((field) => ['variants', 'image_paths'].includes(field) ? JSON.stringify(p[field] || []) : field === 'specifications' ? JSON.stringify(p[field] || {}) : p[field] ?? null)); return r.rows[0]; }
   async createProductIdempotently(input, key) {
     const product = { ...input, creation_idempotency_key: key };
-    const inserted = await this.query(`INSERT INTO products (${productFields.join(',')}) VALUES (${productFields.map((_, i) => `$${i + 1}`).join(',')}) ON CONFLICT (creation_idempotency_key) DO NOTHING RETURNING *`, productFields.map((field) => field === 'variants' || field === 'image_paths' ? JSON.stringify(product[field] || []) : product[field] ?? null));
+    const inserted = await this.query(`INSERT INTO products (${productFields.join(',')}) VALUES (${productFields.map((_, i) => `$${i + 1}`).join(',')}) ON CONFLICT (creation_idempotency_key) DO NOTHING RETURNING *`, productFields.map((field) => ['variants', 'image_paths'].includes(field) ? JSON.stringify(product[field] || []) : field === 'specifications' ? JSON.stringify(product[field] || {}) : product[field] ?? null));
     if (inserted.rows[0]) return { product: inserted.rows[0], duplicate: false };
     const existing = await this.getProductByCreationKey(key);
     if (!existing) throw new Error('Product creation could not be confirmed. Retry with the same request key.');
     return { product: existing, duplicate: true };
   }
-  async updateProduct(id, p) { const safeKeys = Object.keys(p).filter((key) => productFields.includes(key)); if (!safeKeys.length) return this.getProduct(id); const sets = safeKeys.map((key, i) => `${key} = $${i + 1}`).join(', '); const values = safeKeys.map((key) => ['variants', 'image_paths'].includes(key) ? JSON.stringify(p[key] || []) : p[key]); const r = await this.query(`UPDATE products SET ${sets}, updated_at = NOW() WHERE id = $${safeKeys.length + 1} RETURNING *`, [...values, id]); return r.rows[0] || null; }
+  async updateProduct(id, p) { const safeKeys = Object.keys(p).filter((key) => productFields.includes(key)); if (!safeKeys.length) return this.getProduct(id); const sets = safeKeys.map((key, i) => `${key} = $${i + 1}`).join(', '); const values = safeKeys.map((key) => ['variants', 'image_paths'].includes(key) ? JSON.stringify(p[key] || []) : key === 'specifications' ? JSON.stringify(p[key] || {}) : p[key]); const r = await this.query(`UPDATE products SET ${sets}, updated_at = NOW() WHERE id = $${safeKeys.length + 1} RETURNING *`, [...values, id]); return r.rows[0] || null; }
   async deleteProduct(id) { const r = await this.query('DELETE FROM products WHERE id = $1', [id]); return r.rowCount > 0; }
   async findAdmin(email) { const r = await this.query('SELECT * FROM admin_users WHERE email = $1', [email.toLowerCase()]); return r.rows[0] || null; }
   async findAdminById(id) { const r = await this.query('SELECT * FROM admin_users WHERE id = $1', [id]); return r.rows[0] || null; }

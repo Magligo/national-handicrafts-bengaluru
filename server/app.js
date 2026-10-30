@@ -70,8 +70,20 @@ export function createApp({ repo = createRepository(), secret = serverConfig.adm
   app.use('/uploads', express.static(path.join(root, '..', 'public', 'uploads')));
   app.get('/api/health', (_req, res) => res.json({ ok: true, service: 'national-handicrafts-api' }));
   app.get('/api/payment/config', (_req, res) => { const config = paymentConfig(); res.json({ data: config.enabled ? config : { enabled: false } }); });
-  app.get('/api/products', async (req, res, next) => { try { res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=300'); res.json({ data: await repo.listProducts({ q: req.query.q || '', category: req.query.category || '' }) }); } catch (e) { next(e); } });
-  app.get('/api/products/:id', async (req, res, next) => { try { const p = await repo.getProduct(req.params.id); if (!p || !p.active || p.verification_status !== 'verified') return res.status(404).json({ error: 'Product not found' }); res.json({ data: p }); } catch (e) { next(e); } });
+  const publicProduct = (product) => {
+    const specifications = product.specifications || {};
+    const publicSpecs = specifications.sourceReviewStatus === 'verified' ? { ...specifications } : {};
+    if (!publicSpecs.countryOfOriginVerified) { delete publicSpecs.countryOfOrigin; delete publicSpecs.countryOfOriginVerified; }
+    const variants = (Array.isArray(product.variants) ? product.variants : []).map((variant) => {
+      const verified = variant.source_review_status === 'verified';
+      const { price, ...fields } = variant;
+      if (!verified) return { id: variant.id, name: 'Option awaiting review', price_inr: null, stock: null, availability: 'enquiry', source_review_status: 'needs_review' };
+      return { ...fields, price_inr: variant.price_inr ?? price ?? null, source_review_status: 'verified' };
+    });
+    return { ...product, price_inr: variants.length ? null : product.price_inr, stock: variants.length ? null : product.stock, variants, specifications: publicSpecs };
+  };
+  app.get('/api/products', async (req, res, next) => { try { res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=300'); res.json({ data: (await repo.listProducts({ q: req.query.q || '', category: req.query.category || '' })).map(publicProduct) }); } catch (e) { next(e); } });
+  app.get('/api/products/:id', async (req, res, next) => { try { const p = await repo.getProduct(req.params.id); if (!p || !p.active || p.verification_status !== 'verified') return res.status(404).json({ error: 'Product not found' }); res.json({ data: publicProduct(p) }); } catch (e) { next(e); } });
   app.post('/api/auth/login', adminLoginRateLimit, async (req, res, next) => { try { const user = await authenticate(req.body?.email || '', req.body?.password || '', repo); if (!user || user.role !== 'admin') return res.status(401).json({ error: 'Invalid admin credentials' }); setSession(res, user, sessionSecret); res.json({ data: user }); } catch (e) { next(e); } });
   const admin = requireAdmin(sessionSecret, repo);
   const adminMutation = requireAdmin(sessionSecret, repo, { csrf: true });
@@ -108,9 +120,22 @@ export function createApp({ repo = createRepository(), secret = serverConfig.adm
         const quantity = Number(requested.quantity);
         if (!product || !product.active || product.verification_status !== 'verified') continue;
         if (!Number.isInteger(quantity) || quantity < 1) throw new Error('Quantity must be a positive whole number');
-        if (product.stock !== null && quantity > product.stock) throw new Error(`Insufficient stock for ${product.name}`);
-        if (product.price_inr == null) throw new Error(`A verified price is required for ${product.name}`);
-        items.push({ productId: product.id, name: product.name, quantity, unitPriceInr: product.price_inr, imagePath: product.image_path || null, variant: requested.variant || null });
+        const variants = Array.isArray(product.variants) ? product.variants : [];
+        let selectedVariant = null;
+        let unitPriceInr = product.price_inr;
+        let availableStock = product.stock;
+        if (variants.length) {
+          selectedVariant = variants.find((variant) => variant.id === requested.variantId || (variant.sku && variant.sku === requested.variantSku));
+          if (!selectedVariant) throw new Error(`Choose a valid variant for ${product.name}`);
+          if (selectedVariant.source_review_status !== 'verified') throw new Error(`The selected option for ${product.name} is awaiting price review`);
+          unitPriceInr = selectedVariant.price_inr ?? selectedVariant.price;
+          availableStock = selectedVariant.stock;
+          if (selectedVariant.availability !== 'available') throw new Error(`The selected option for ${product.name} is not available to order`);
+        }
+        if (availableStock !== null && availableStock !== undefined && quantity > availableStock) throw new Error(`Insufficient stock for ${product.name}${selectedVariant ? ` (${selectedVariant.name || selectedVariant.size || 'selected option'})` : ''}`);
+        if (unitPriceInr == null || !Number.isSafeInteger(Number(unitPriceInr))) throw new Error(`A verified price is required for ${product.name}`);
+        const variantSnapshot = selectedVariant ? { id: selectedVariant.id, name: selectedVariant.name || null, size: selectedVariant.size || null, weight: selectedVariant.weight ?? null, weightUnit: selectedVariant.weight_unit || null, dimensions: selectedVariant.dimensions || null, capacity: selectedVariant.capacity || null, capacityUnit: selectedVariant.capacity_unit || null, sku: selectedVariant.sku || null } : null;
+        items.push({ productId: product.id, name: product.name, quantity, unitPriceInr: Number(unitPriceInr), imagePath: product.image_path || null, variantId: selectedVariant?.id || null, variant: variantSnapshot });
       }
       if (!items.length) return res.status(400).json({ error: 'No valid products found' });
       const subtotal = items.reduce((sum, item) => sum + item.unitPriceInr * item.quantity, 0);

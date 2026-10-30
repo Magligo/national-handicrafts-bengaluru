@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 const categories = ['Brass', 'Copper', 'Puja Articles', 'Dining & Thali Sets', 'Decorative Handicrafts'];
 const statuses = ['pending', 'verified', 'rejected'];
 const orderStatuses = ['enquiry', 'pending', 'confirmed', 'processing', 'packed', 'shipped', 'delivered', 'completed', 'cancelled'];
@@ -13,6 +14,7 @@ export function productInput(body = {}, { partial = false } = {}) {
   if (!partial || body.discountPercent !== undefined || body.discount_percent !== undefined) { const discount = body.discountPercent ?? body.discount_percent; value.discount_percent = discount === '' || discount == null ? null : Number(discount); }
   if (!partial || body.stock !== undefined) value.stock = body.stock === '' || body.stock == null ? null : Number(body.stock);
   if (!partial || body.variants !== undefined) { try { value.variants = typeof body.variants === 'string' ? JSON.parse(body.variants || '[]') : (body.variants ?? []); } catch { throw new Error('Variants must be valid JSON'); } }
+  if (!partial || body.specifications !== undefined) { try { value.specifications = typeof body.specifications === 'string' ? JSON.parse(body.specifications || '{}') : (body.specifications ?? {}); } catch { throw new Error('Specifications must be valid JSON'); } }
   if (!partial || body.unit !== undefined) value.unit = optionalText(body.unit, 80) || null;
   if (!partial || body.dimensions !== undefined) value.dimensions = optionalText(body.dimensions, 200) || null;
   if (!partial || body.weight !== undefined) value.weight = optionalText(body.weight, 100) || null;
@@ -31,7 +33,46 @@ export function productInput(body = {}, { partial = false } = {}) {
   if (value.source_page !== null && value.source_page !== undefined && (!Number.isInteger(value.source_page) || value.source_page < 1)) throw new Error('Source page must be a positive whole number');
   if (value.category && !categories.includes(value.category)) throw new Error(`Category must be one of: ${categories.join(', ')}`);
   if (value.availability && !availabilityValues.includes(value.availability)) throw new Error(`Availability must be one of: ${availabilityValues.join(', ')}`);
-  if (!Array.isArray(value.variants)) throw new Error('Variants must be an array');
+  if (value.variants !== undefined && !Array.isArray(value.variants)) throw new Error('Variants must be an array');
+  if (value.variants !== undefined) {
+    const variantIds = new Set();
+    const variantSkus = new Set();
+    value.variants = value.variants.map((variant, index) => {
+    if (!variant || typeof variant !== 'object' || Array.isArray(variant)) throw new Error(`Variant ${index + 1} must be an object`);
+    const text = (key, max = 200) => optionalText(variant[key], max) || null;
+    const rawPrice = variant.price_inr ?? variant.price;
+    const price = rawPrice === '' || rawPrice == null ? null : Number(rawPrice);
+    const stock = variant.stock === '' || variant.stock == null ? null : Number(variant.stock);
+    const weight = variant.weight === '' || variant.weight == null ? null : Number(variant.weight);
+    if (price != null && (!Number.isSafeInteger(price) || price < 0)) throw new Error(`Variant ${index + 1} price must be a non-negative whole number or blank`);
+    if (stock != null && (!Number.isSafeInteger(stock) || stock < 0)) throw new Error(`Variant ${index + 1} stock must be a non-negative whole number or blank`);
+    if (weight != null && (!Number.isFinite(weight) || weight < 0)) throw new Error(`Variant ${index + 1} weight must be non-negative`);
+    const id = text('id', 80) || randomUUID();
+    const sku = text('sku', 100);
+    if (variantIds.has(id)) throw new Error(`Variant ${index + 1} has a duplicate variant identifier`);
+    if (sku && variantSkus.has(sku.toLowerCase())) throw new Error(`Variant ${index + 1} has a duplicate variant code`);
+    variantIds.add(id);
+    if (sku) variantSkus.add(sku.toLowerCase());
+    const weightUnit = text('weight_unit', 20);
+    const capacityUnit = text('capacity_unit', 20);
+    if (weightUnit && !['g', 'kg'].includes(weightUnit)) throw new Error(`Variant ${index + 1} weight unit must be g or kg`);
+    if (capacityUnit && !['ml', 'litre'].includes(capacityUnit)) throw new Error(`Variant ${index + 1} capacity unit must be ml or litre`);
+    return { ...variant, id, name: text('name'), size: text('size', 120), weight, weight_unit: weightUnit, dimensions: text('dimensions'), capacity: text('capacity', 80), capacity_unit: capacityUnit, price_inr: price, price: undefined, stock, sku, availability: availabilityValues.includes(variant.availability) ? variant.availability : 'enquiry', source_review_status: ['unreviewed', 'needs_review', 'verified'].includes(variant.source_review_status) ? variant.source_review_status : 'unreviewed' };
+    });
+  }
+  if (value.specifications !== undefined && (!value.specifications || typeof value.specifications !== 'object' || Array.isArray(value.specifications))) throw new Error('Specifications must be an object');
+  const allowedSpecs = ['brand', 'productType', 'material', 'customMaterial', 'finish', 'customFinish', 'colour', 'countryOfOrigin', 'countryOfOriginVerified', 'size', 'weight', 'weightUnit', 'length', 'width', 'height', 'diameter', 'capacity', 'capacityUnit', 'measurementUnit', 'pieces', 'itemsIncluded', 'accessories', 'packagingType', 'giftBox', 'packagingColours', 'usage', 'careInstructions', 'specialFeatures', 'additionalNotes', 'sourceReviewStatus', 'sourceReviewNotes'];
+  const specifications = {};
+  for (const key of allowedSpecs) {
+    const raw = value.specifications?.[key];
+    if (raw === undefined || raw === null || raw === '') continue;
+    if (key === 'countryOfOriginVerified' || key === 'giftBox') specifications[key] = raw === true || raw === 'true';
+    else if (key === 'pieces') { const number = Number(raw); if (!Number.isInteger(number) || number < 0) throw new Error('Pieces must be a non-negative whole number'); specifications[key] = number; }
+    else specifications[key] = optionalText(raw, ['description', 'careInstructions', 'additionalNotes', 'itemsIncluded', 'accessories', 'specialFeatures', 'sourceReviewNotes'].includes(key) ? 2000 : 200);
+  }
+  if (!specifications.countryOfOriginVerified) delete specifications.countryOfOrigin;
+  if (!['unreviewed', 'needs_review', 'verified'].includes(specifications.sourceReviewStatus)) specifications.sourceReviewStatus = 'unreviewed';
+  if (value.specifications !== undefined) value.specifications = specifications;
   return value;
 }
 export function validateOrder(body) {

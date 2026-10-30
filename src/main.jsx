@@ -84,30 +84,65 @@ function SiteNavigationV2({ page, setPage, cartCount, searchQuery, setSearchQuer
 function LoadingState({ label = 'Loading the catalogue…' }) { return <div className="status-state" role="status"><p>{label}</p></div>; }
 function LoadingScreen() { return <div className="app-loading-screen" role="status" aria-live="polite"><div className="app-loading-inner"><img src="/assets/heritage-emblem.png" alt="National Handicrafts Bengaluru" /><p className="app-loading-brand">National Handicrafts Bengaluru</p><div className="app-loading-track" aria-hidden="true"><span /></div><p className="app-loading-caption">Crafting something special…</p></div></div>; }
 
-function GoogleSignIn({ onSuccess, onError }) {
-  const host = useRef(null);
-  const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID?.trim();
-  useEffect(() => {
-    const report = (message) => onError?.(message);
-    if (!clientId) return undefined;
-    const render = () => {
-      if (!host.current || !window.google?.accounts?.id) return;
-      window.google.accounts.id.initialize({ client_id: clientId, callback: (response) => onSuccess?.(response.credential) });
-      window.google.accounts.id.renderButton(host.current, { theme: 'filled_blue', size: 'large', text: 'continue_with', shape: 'rectangular', width: Math.min(360, host.current.clientWidth || 360) });
-    };
-    if (window.google?.accounts?.id) render();
-    else {
-      const script = document.createElement('script');
+let googleIdentityScriptPromise;
+
+function loadGoogleIdentityServices() {
+  if (window.google?.accounts?.id) return Promise.resolve();
+  if (googleIdentityScriptPromise) return googleIdentityScriptPromise;
+  googleIdentityScriptPromise = new Promise((resolve, reject) => {
+    const script = document.querySelector('script[src="https://accounts.google.com/gsi/client"]') || document.createElement('script');
+    const onLoad = () => window.google?.accounts?.id ? resolve() : reject(new Error('Google Identity Services did not initialize.'));
+    const onError = () => reject(new Error('Google Identity Services could not be loaded.'));
+    script.addEventListener('load', onLoad, { once: true });
+    script.addEventListener('error', onError, { once: true });
+    if (!script.isConnected) {
       script.src = 'https://accounts.google.com/gsi/client';
       script.async = true;
-      script.onload = render;
-      script.onerror = () => report('Google sign-in could not be loaded.');
       document.head.appendChild(script);
-    }
-    return undefined;
-  }, [clientId, onSuccess, onError]);
-  if (!clientId) return <div className="google-signin google-signin-unavailable"><button className="google-config-button" type="button" disabled>Continue with Google</button><p className="auth-note" role="status">Google sign-in is not configured for this deployment.</p></div>;
-  return <div className="google-signin" ref={host} aria-label="Continue with Google" />;
+    } else if (window.google?.accounts?.id) onLoad();
+  }).catch((error) => {
+    googleIdentityScriptPromise = undefined;
+    throw error;
+  });
+  return googleIdentityScriptPromise;
+}
+
+function GoogleSignIn({ onSuccess, onError }) {
+  const host = useRef(null);
+  const callbacks = useRef({ onSuccess, onError });
+  const [diagnostic, setDiagnostic] = useState('');
+  const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID?.trim();
+  const validClientId = !clientId || /^[0-9]+-[A-Za-z0-9_-]+\.apps\.googleusercontent\.com$/.test(clientId);
+
+  useEffect(() => { callbacks.current = { onSuccess, onError }; }, [onSuccess, onError]);
+  useEffect(() => {
+    if (!clientId || !validClientId) return undefined;
+    let active = true;
+    setDiagnostic('');
+    loadGoogleIdentityServices().then(() => {
+      if (!active || !host.current) return;
+      const identity = window.google.accounts.id;
+      identity.initialize({
+        client_id: clientId,
+        callback: (response) => callbacks.current.onSuccess?.(response.credential),
+        error_callback: (error) => {
+          const message = error?.type === 'popup_failed_to_open'
+            ? 'Google sign-in popup could not be opened. Allow popups and try again.'
+            : 'Google sign-in could not be started. Check the OAuth web client and authorized origins.';
+          callbacks.current.onError?.(message);
+        },
+      });
+      host.current.replaceChildren();
+      identity.renderButton(host.current, { theme: 'filled_blue', size: 'large', text: 'continue_with', shape: 'rectangular', width: Math.min(360, host.current.clientWidth || 360) });
+    }).catch(() => {
+      if (active) setDiagnostic('Google sign-in could not load. Check the network or content blocker, then reload the page.');
+    });
+    return () => { active = false; };
+  }, [clientId, validClientId]);
+
+  if (!clientId) return <div className="google-signin google-signin-unavailable"><button className="google-config-button" type="button" disabled>Continue with Google</button><p className="auth-note" role="status">Google sign-in is unavailable because VITE_GOOGLE_CLIENT_ID is missing from this deployment’s Vite build environment. Add it to the Vercel project’s Production Environment Variables and redeploy.</p></div>;
+  if (!validClientId) return <div className="google-signin google-signin-unavailable"><button className="google-config-button" type="button" disabled>Continue with Google</button><p className="auth-note" role="status">Google sign-in is unavailable because VITE_GOOGLE_CLIENT_ID is not a valid Google OAuth client ID. Use a Google OAuth Web application client ID.</p></div>;
+  return <div className="google-signin" ref={host} aria-label="Continue with Google">{diagnostic && <p className="auth-note" role="status">{diagnostic}</p>}</div>;
 }
 function LandingHero({ setPage }) { return <section id="home" className="hero section"><div className="hero-copy"><p className="section-label">National Handicrafts Bengaluru</p><h1>Craft for every day.</h1><p className="lede">Verified brass, copper, puja, dining and decorative objects, presented with the care they deserve.</p><button className="button primary" onClick={() => setPage('products')}>Explore the collection →</button></div><div className="hero-art"><SafeImage src="/assets/hanging-brass-lanterns.png" alt="Handcrafted brass hanging lanterns" loading="eager" fetchPriority="high" width={700} height={650} /></div></section>; }
 function ErrorState({ onRetry, message }) { return <div className="status-state error-state" role="alert"><p>We could not load the catalogue.</p><span>{message || 'Check that the API is running, then try again.'}</span>{onRetry && <button className="button secondary" onClick={onRetry}>Try again</button>}</div>; }

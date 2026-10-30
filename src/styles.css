@@ -1711,3 +1711,5 @@ button:focus-visible, a:focus-visible, [role="button"]:focus-visible, summary:fo
   .cart-empty { padding: 2.25rem 1.1rem; }
   .cart-empty h2 { font-size: 1.45rem; }
 }
+.cart-fly-image{z-index:2000;display:block;object-fit:contain;border-radius:8px;pointer-events:none;user-select:none;will-change:transform,opacity;filter:drop-shadow(0 12px 18px rgba(59,40,29,.24))}
+@media(prefers-reduced-motion:reduce){.cart-fly-image{display:none!important}}

@@ -13,7 +13,7 @@
     "server:watch": "node --env-file-if-exists=.env --watch server/index.js",
     "server:prod": "node --env-file=.env server/index.js",
     "migrate:images": "node tools/migrate-product-images.js",
-    "test": "node --input-type=module -e \"await import('./server/app.test.js'); await import('./src/services/image.test.js'); await import('./src/services/catalogueFilters.test.js')\"",
+    "test": "node --input-type=module -e \"await import('./server/app.test.js'); await import('./src/services/image.test.js'); await import('./src/services/catalogueFilters.test.js'); await import('./src/services/cartAnimation.test.js')\"",
     "check": "vite build"
   },
   "dependencies": {

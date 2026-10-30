@@ -121,7 +121,27 @@ export function createApp({ repo = createRepository(), secret = serverConfig.adm
   });
   app.get('/api/admin/dashboard', admin, async (_req, res, next) => { try { res.json({ data: await repo.dashboard() }); } catch (e) { next(e); } });
   app.get('/api/admin/products', admin, async (req, res, next) => { try { res.json({ data: await repo.listProducts({ admin: true, q: req.query.q || '', category: req.query.category || '' }) }); } catch (e) { next(e); } });
-  app.post('/api/admin/products', adminMutation, upload.array('images', 8), async (req, res, next) => { try { const input = productInput(req.body); const imagePaths = await uploadProductImages(req.files || [], imageUploader); const mainIndex = Math.max(0, Math.min(Number(req.body.mainImageIndex || 0), imagePaths.length - 1)); input.image_paths = imagePaths; input.image_path = imagePaths[mainIndex] || null; res.status(201).json({ data: await repo.createProduct(input) }); } catch (e) { next(e); } });
+  app.post('/api/admin/products', adminMutation, upload.array('images', 8), async (req, res, next) => {
+    try {
+      const requestKey = String(req.get('Idempotency-Key') || '').trim();
+      if (requestKey.length > 120) return res.status(400).json({ error: 'Idempotency key must be 120 characters or fewer' });
+      const creationKey = requestKey ? `${req.admin.id}:${requestKey}` : null;
+      if (creationKey) {
+        const existing = await repo.getProductByCreationKey(creationKey);
+        if (existing) return res.status(200).json({ data: existing, duplicate: true });
+      }
+      const input = productInput(req.body);
+      const imagePaths = await uploadProductImages(req.files || [], imageUploader);
+      const mainIndex = Math.max(0, Math.min(Number(req.body.mainImageIndex || 0), imagePaths.length - 1));
+      input.image_paths = imagePaths;
+      input.image_path = imagePaths[mainIndex] || null;
+      if (creationKey) {
+        const result = await repo.createProductIdempotently(input, creationKey);
+        return res.status(result.duplicate ? 200 : 201).json({ data: result.product, ...(result.duplicate ? { duplicate: true } : {}) });
+      }
+      res.status(201).json({ data: await repo.createProduct(input) });
+    } catch (e) { next(e); }
+  });
   app.patch('/api/admin/products/:id', adminMutation, upload.array('images', 8), async (req, res, next) => { try { const input = productInput(req.body, { partial: true }); const imagePaths = await uploadProductImages(req.files || [], imageUploader); if (imagePaths.length) { const mainIndex = Math.max(0, Math.min(Number(req.body.mainImageIndex || 0), imagePaths.length - 1)); input.image_paths = imagePaths; input.image_path = imagePaths[mainIndex]; } const updated = await repo.updateProduct(req.params.id, input); if (!updated) return res.status(404).json({ error: 'Product not found' }); res.json({ data: updated }); } catch (e) { next(e); } });
   app.post('/api/admin/products/:id/publish', adminMutation, async (req, res, next) => { try { const updated = await repo.updateProduct(req.params.id, { verification_status: 'verified', active: true }); if (!updated) return res.status(404).json({ error: 'Product not found' }); res.json({ data: updated }); } catch (e) { next(e); } });
   app.post('/api/admin/products/:id/unpublish', adminMutation, async (req, res, next) => { try { const updated = await repo.updateProduct(req.params.id, { active: false }); if (!updated) return res.status(404).json({ error: 'Product not found' }); res.json({ data: updated }); } catch (e) { next(e); } });

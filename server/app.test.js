@@ -273,6 +273,46 @@ test('admin can add a verified product and it becomes public', async () => {
   assert.equal(products.body.data[0].name, 'Test Bell');
 });
 
+test('product creation is idempotent for repeated publication submissions', async () => {
+  const { app, repo } = await setup();
+  const auth = await signIn(app);
+  const payload = { name: 'Single Publication Bowl', category: 'Brass', price: 900, stock: 4, variants: [], verificationStatus: 'pending' };
+  const submit = () => adminRequest(app, auth, 'post', '/api/admin/products').set('Idempotency-Key', 'single-publication-action').send(payload);
+  const [first, repeated] = await Promise.all([submit(), submit()]);
+  assert.deepEqual([first.status, repeated.status].sort(), [200, 201]);
+  assert.equal(first.body.data.id, repeated.body.data.id);
+  assert.equal(repo.products.length, 1);
+
+  const [publishOne, publishAgain] = await Promise.all([
+    adminRequest(app, auth, 'post', `/api/admin/products/${first.body.data.id}/publish`),
+    adminRequest(app, auth, 'post', `/api/admin/products/${first.body.data.id}/publish`),
+  ]);
+  assert.equal(publishOne.status, 200);
+  assert.equal(publishAgain.status, 200);
+  assert.equal(repo.products.length, 1);
+  assert.equal(repo.products[0].active, true);
+  assert.equal(repo.products[0].verification_status, 'verified');
+
+  const distinct = await adminRequest(app, auth, 'post', '/api/admin/products').set('Idempotency-Key', 'different-product-action')
+    .send({ ...payload, name: 'Second Distinct Bowl' });
+  assert.equal(distinct.status, 201);
+  assert.equal(repo.products.length, 2);
+  assert.notEqual(distinct.body.data.id, first.body.data.id);
+});
+
+test('failed product creation can be retried with the same idempotency key', async () => {
+  const { app, repo } = await setup();
+  const auth = await signIn(app);
+  const key = 'retry-after-validation-error';
+  const failed = await adminRequest(app, auth, 'post', '/api/admin/products').set('Idempotency-Key', key).send({ category: 'Brass' });
+  assert.equal(failed.status, 400);
+  assert.equal(repo.products.length, 0);
+  const retried = await adminRequest(app, auth, 'post', '/api/admin/products').set('Idempotency-Key', key)
+    .send({ name: 'Safe Retry Bowl', category: 'Brass', price: 500, stock: 2, variants: [] });
+  assert.equal(retried.status, 201);
+  assert.equal(repo.products.length, 1);
+});
+
 test('admin can upload multiple product images and select the main image', async () => {
   const { app } = await setup();
   const auth = await signIn(app);

@@ -30,7 +30,11 @@ export async function api(path, options = {}) {
   } catch {
     body = null;
   }
-  if (!response.ok) throw new Error(body?.error || 'The request could not be completed.');
+  if (!response.ok) {
+    const error = new Error(body?.error || 'The request could not be completed.');
+    error.status = response.status;
+    throw error;
+  }
   return body;
 }
 

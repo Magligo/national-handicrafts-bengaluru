@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS admin_users (
 CREATE TABLE IF NOT EXISTS products (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   sku TEXT UNIQUE,
+  creation_idempotency_key TEXT,
   name TEXT NOT NULL,
   category TEXT NOT NULL,
   description TEXT,

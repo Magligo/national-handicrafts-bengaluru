@@ -8,13 +8,16 @@ import { fileURLToPath } from 'node:url';
 import { authenticate, authenticateCustomer, clearSession, clearCustomerSession, getCsrfToken, getCustomerCsrfToken, setSession, setCustomerSession, requireAdmin, requireCustomer, optionalCustomer } from './auth.js';
 import { createRepository } from './repository.js';
 import { productInput, validateOrder, customerRegistrationInput, customerProfileInput, addressInput, adminPasswordChangeInput, orderStatuses } from './validation.js';
-import { paymentConfig, serverConfig } from './config/env.js';
+import { getConfiguredFrontendOrigins, paymentConfig, serverConfig } from './config/env.js';
 import { createRateLimit } from './middleware/rateLimit.js';
 import { uploadProductImage } from './storage/cloudinary.js';
 import { OAuth2Client } from 'google-auth-library';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const localDevelopmentOrigins = ['http://localhost:5173', 'http://localhost:5174'];
+const projectVercelPreviewOrigin = /^https:\/\/national-handicrafts-bengaluru-(?:[a-z0-9]{6,}|git-[a-z0-9]+(?:-[a-z0-9]+)*)-magligo\.vercel\.app$/i;
+const corsMethods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'];
+const corsHeaders = ['Content-Type', 'X-CSRF-Token', 'Idempotency-Key'];
 const storage = multer.memoryStorage();
 const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024, files: 8 }, fileFilter: (_req, file, cb) => /^image\/(jpeg|png|webp)$/.test(file.mimetype) ? cb(null, true) : cb(new Error('Only JPEG, PNG, and WebP images are allowed')) });
 function removeUploadedFiles(product) { const paths = [...new Set([product?.image_path, ...(product?.image_paths || [])].filter((value) => typeof value === 'string' && value.startsWith('/uploads/')))]; for (const publicPath of paths) { try { fs.unlinkSync(path.join(root, '..', 'public', publicPath.replace(/^\//, ''))); } catch { /* stale or already removed upload */ } } }
@@ -38,17 +41,31 @@ async function verifyGoogleCredential(credential, clientId) {
   }
 }
 
-export function createApp({ repo = createRepository(), secret = serverConfig.adminSessionSecret, corsOrigin = serverConfig.frontendOrigin, imageUploader = uploadProductImage, googleVerifier = verifyGoogleCredential, googleClientId = serverConfig.googleClientId } = {}) {
+export function createApp({ repo = createRepository(), secret = serverConfig.adminSessionSecret, corsOrigin, imageUploader = uploadProductImage, googleVerifier = verifyGoogleCredential, googleClientId = serverConfig.googleClientId } = {}) {
   if (process.env.NODE_ENV === 'production' && !secret) throw new Error('ADMIN_SESSION_SECRET is required in production');
-  if (process.env.NODE_ENV === 'production' && !process.env.FRONTEND_ORIGIN) throw new Error('FRONTEND_ORIGIN is required in production');
+  const configuredOrigins = getConfiguredFrontendOrigins(corsOrigin);
+  if (process.env.NODE_ENV === 'production' && configuredOrigins.length === 0) throw new Error('FRONTEND_ORIGINS or FRONTEND_ORIGIN is required in production');
   const sessionSecret = secret || 'local-only-change-me';
   const customerSessionSecret = process.env.CUSTOMER_SESSION_SECRET || sessionSecret;
   const app = express();
   const adminLoginRateLimit = createRateLimit({ message: 'Too many failed admin login attempts. Try again later.' });
   const customerLoginRateLimit = createRateLimit({ message: 'Too many failed account login attempts. Try again later.' });
   const orderRateLimit = createRateLimit();
-  const allowedOrigins = new Set([corsOrigin, ...(process.env.NODE_ENV === 'production' ? [] : localDevelopmentOrigins)].filter(Boolean));
-  app.use(cors({ origin: (origin, callback) => callback(null, !origin || allowedOrigins.has(origin)), credentials: true }));
+  const allowedOrigins = new Set([...configuredOrigins, ...(process.env.NODE_ENV === 'production' ? [] : localDevelopmentOrigins)]);
+  const isAllowedOrigin = (origin) => allowedOrigins.has(origin) || projectVercelPreviewOrigin.test(origin);
+  app.use((req, res, next) => {
+    const origin = req.get('Origin');
+    if (origin && !isAllowedOrigin(origin)) return res.status(403).json({ error: 'Origin not allowed' });
+    next();
+  });
+  app.use(cors({
+    origin: (origin, callback) => callback(null, !origin || isAllowedOrigin(origin)),
+    credentials: true,
+    methods: corsMethods,
+    allowedHeaders: corsHeaders,
+    optionsSuccessStatus: 204,
+    maxAge: 600,
+  }));
   app.use(express.json({ limit: '1mb' }));
   app.use('/uploads', express.static(path.join(root, '..', 'public', 'uploads')));
   app.get('/api/health', (_req, res) => res.json({ ok: true, service: 'national-handicrafts-api' }));

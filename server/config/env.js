@@ -7,6 +7,14 @@ export const serverConfig = {
   googleClientId: process.env.GOOGLE_CLIENT_ID,
 };
 
+export function getConfiguredFrontendOrigins(additionalOrigin) {
+  return [
+    ...String(process.env.FRONTEND_ORIGINS || '').split(',').map((origin) => origin.trim()),
+    process.env.FRONTEND_ORIGIN,
+    additionalOrigin,
+  ].filter(Boolean);
+}
+
 export function paymentConfig() {
   const upiId = (process.env.PAYMENT_UPI_ID || process.env.UPI_ID || '').trim();
   const payeeName = (process.env.PAYMENT_UPI_PAYEE_NAME || process.env.UPI_PAYEE_NAME || '').trim();

@@ -420,7 +420,7 @@ test('allows the configured development origin while keeping other origins out',
   const local5174 = await request(app).get('/api/products').set('Origin', 'http://localhost:5174');
   const local5174Preflight = await request(app).options('/api/products').set('Origin', 'http://localhost:5174').set('Access-Control-Request-Method', 'GET').set('Access-Control-Request-Headers', 'content-type');
   const blocked = await request(app).get('/api/products').set('Origin', 'https://example.com');
-  assert.equal(allowed.status, 200);
+  assert.equal(allowed.status, 403);
   assert.equal(allowed.headers['access-control-allow-origin'], undefined);
   assert.equal(local5173.headers['access-control-allow-origin'], 'http://localhost:5173');
   assert.ok(Array.isArray(local5174.body.data));
@@ -429,7 +429,7 @@ test('allows the configured development origin while keeping other origins out',
   assert.equal(local5174Preflight.status, 204);
   assert.equal(local5174Preflight.headers['access-control-allow-origin'], 'http://localhost:5174');
   assert.equal(local5174Preflight.headers['access-control-allow-credentials'], 'true');
-  assert.equal(blocked.status, 200);
+  assert.equal(blocked.status, 403);
   assert.equal(blocked.headers['access-control-allow-origin'], undefined);
 });
 
@@ -450,35 +450,148 @@ test('does not add local development origins to the production CORS allowlist', 
   }
 });
 
-test('allows only the exact configured production origin with credentialed requests', async () => {
+test('allows configured production and project preview origins with credentials and strict preflight handling', async () => {
   const previousNodeEnv = process.env.NODE_ENV;
   const previousFrontendOrigin = process.env.FRONTEND_ORIGIN;
+  const previousFrontendOrigins = process.env.FRONTEND_ORIGINS;
   process.env.NODE_ENV = 'production';
-  process.env.FRONTEND_ORIGIN = 'https://national-handicrafts-bengaluru.vercel.app';
+  delete process.env.FRONTEND_ORIGIN;
+  process.env.FRONTEND_ORIGINS = [
+    'https://national-handicrafts-bengaluru.vercel.app',
+    'https://national-handicrafts-bengaluru-89t3kslzk-magligo.vercel.app',
+    'http://localhost:5173',
+  ].join(',');
   try {
-    const { app } = createApp({ repo: new MemoryRepository(), secret: 'test-secret', corsOrigin: 'https://national-handicrafts-bengaluru.vercel.app' });
-    const production = await request(app).get('/api/products').set('Origin', 'https://national-handicrafts-bengaluru.vercel.app');
-    const previewOrigin = 'https://national-handicrafts-bengaluru-2yfi2l39r-magligo.vercel.app';
-    const preview = await request(app).get('/api/products').set('Origin', previewOrigin);
-    const preflight = await request(app).options('/api/products').set('Origin', previewOrigin).set('Access-Control-Request-Method', 'GET').set('Access-Control-Request-Headers', 'content-type');
-    const otherProject = await request(app).get('/api/products').set('Origin', 'https://other-project-2yfi2l39r-magligo.vercel.app');
-    const otherScope = await request(app).get('/api/products').set('Origin', 'https://national-handicrafts-bengaluru-2yfi2l39r-other.vercel.app');
-    const arbitraryVercel = await request(app).get('/api/products').set('Origin', 'https://national-handicrafts-bengaluru-2yfi2l39r-magligo.vercel.app.attacker.test');
+    const { app } = createApp({ repo: new MemoryRepository(), secret: 'test-secret' });
+    const origins = [
+      'https://national-handicrafts-bengaluru.vercel.app',
+      'https://national-handicrafts-bengaluru-89t3kslzk-magligo.vercel.app',
+      'https://national-handicrafts-bengaluru-f7r4q2m1-magligo.vercel.app',
+      'https://national-handicrafts-bengaluru-git-feature-preview-magligo.vercel.app',
+      'http://localhost:5173',
+    ];
+    for (const origin of origins) {
+      const response = await request(app).get('/api/products').set('Origin', origin);
+      assert.equal(response.status, 200);
+      assert.equal(response.headers['access-control-allow-origin'], origin);
+      assert.equal(response.headers['access-control-allow-credentials'], 'true');
+    }
 
-    assert.equal(production.headers['access-control-allow-origin'], 'https://national-handicrafts-bengaluru.vercel.app');
-    assert.equal(preview.status, 200);
-    assert.ok(Array.isArray(preview.body.data));
-    assert.equal(preview.headers['access-control-allow-origin'], undefined);
-    assert.equal(preview.headers['access-control-allow-credentials'], undefined);
-    assert.equal(preflight.status, 200);
-    assert.equal(preflight.headers['access-control-allow-origin'], undefined);
-    assert.equal(preflight.headers['access-control-allow-credentials'], undefined);
-    assert.equal(otherProject.headers['access-control-allow-origin'], undefined);
-    assert.equal(otherScope.headers['access-control-allow-origin'], undefined);
-    assert.equal(arbitraryVercel.headers['access-control-allow-origin'], undefined);
+    const preflight = await request(app).options('/api/admin/orders/NH-1/status')
+      .set('Origin', origins[2])
+      .set('Access-Control-Request-Method', 'PATCH')
+      .set('Access-Control-Request-Headers', 'content-type,x-csrf-token,idempotency-key');
+    assert.equal(preflight.status, 204);
+    assert.equal(preflight.headers['access-control-allow-origin'], origins[2]);
+    assert.equal(preflight.headers['access-control-allow-credentials'], 'true');
+    assert.match(preflight.headers['access-control-allow-methods'], /GET.*POST.*PUT.*PATCH.*DELETE.*OPTIONS/);
+    assert.match(preflight.headers['access-control-allow-headers'].toLowerCase(), /content-type/);
+    assert.match(preflight.headers['access-control-allow-headers'].toLowerCase(), /x-csrf-token/);
+
+    const deniedOrigins = [
+      'https://example.com',
+      'https://other-project-f7r4q2m1-magligo.vercel.app',
+      'https://national-handicrafts-bengaluru-f7r4q2m1-other.vercel.app',
+      'https://national-handicrafts-bengaluru-f7r4q2m1-magligo.vercel.app.attacker.test',
+      'https://national-handicrafts-bengaluru-f7r4q2m1-magligo.vercel.app.evil',
+      'http://national-handicrafts-bengaluru-f7r4q2m1-magligo.vercel.app',
+    ];
+    for (const origin of deniedOrigins) {
+      const response = await request(app).get('/api/products').set('Origin', origin);
+      assert.equal(response.status, 403);
+      assert.equal(response.headers['access-control-allow-origin'], undefined);
+      assert.deepEqual(response.body, { error: 'Origin not allowed' });
+    }
+
+    const blockedPreflight = await request(app).options('/api/products')
+      .set('Origin', deniedOrigins[0])
+      .set('Access-Control-Request-Method', 'GET');
+    assert.equal(blockedPreflight.status, 403);
+    assert.equal(blockedPreflight.headers['access-control-allow-origin'], undefined);
   } finally {
     if (previousNodeEnv === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = previousNodeEnv;
     if (previousFrontendOrigin === undefined) delete process.env.FRONTEND_ORIGIN; else process.env.FRONTEND_ORIGIN = previousFrontendOrigin;
+    if (previousFrontendOrigins === undefined) delete process.env.FRONTEND_ORIGINS; else process.env.FRONTEND_ORIGINS = previousFrontendOrigins;
+  }
+});
+
+test('serves customer, admin, catalogue, and order workflows from production and preview origins', async () => {
+  const previousNodeEnv = process.env.NODE_ENV;
+  const previousFrontendOrigin = process.env.FRONTEND_ORIGIN;
+  const previousFrontendOrigins = process.env.FRONTEND_ORIGINS;
+  const productionOrigin = 'https://national-handicrafts-bengaluru.vercel.app';
+  const previewOrigin = 'https://national-handicrafts-bengaluru-89t3kslzk-magligo.vercel.app';
+  process.env.NODE_ENV = 'production';
+  process.env.FRONTEND_ORIGIN = productionOrigin;
+  process.env.FRONTEND_ORIGINS = `${productionOrigin},${previewOrigin}`;
+  try {
+    const repo = new MemoryRepository({
+      adminUsers: [{ id: 'a1', email: 'admin@test.local', password_hash: await bcrypt.hash('correct horse battery staple', 10), role: 'admin' }],
+      products: [{ id: 'p1', name: 'Verified Bowl', category: 'Brass', price_inr: 900, stock: 3, active: true, verification_status: 'verified', image_path: null }],
+    });
+    const { app } = createApp({ repo, secret: 'test-secret' });
+    const assertCors = (response, origin) => {
+      assert.equal(response.headers['access-control-allow-origin'], origin);
+      assert.equal(response.headers['access-control-allow-credentials'], 'true');
+    };
+
+    const catalogue = await request(app).get('/api/products').set('Origin', productionOrigin);
+    assert.equal(catalogue.status, 200);
+    assertCors(catalogue, productionOrigin);
+    const detail = await request(app).get('/api/products/p1').set('Origin', previewOrigin);
+    assert.equal(detail.status, 200);
+    assertCors(detail, previewOrigin);
+
+    const registration = await request(app).post('/api/customer/auth/register').set('Origin', previewOrigin)
+      .send({ name: 'Preview Customer', email: 'preview-customer@example.com', password: 'customer-password' });
+    assert.equal(registration.status, 201);
+    assertCors(registration, previewOrigin);
+    const customerCookies = registration.headers['set-cookie'];
+    const customerCsrf = await request(app).get('/api/customer/auth/csrf').set('Origin', previewOrigin).set('Cookie', customerCookies);
+    assert.equal(customerCsrf.status, 200);
+    assertCors(customerCsrf, previewOrigin);
+    const customerLogin = await request(app).post('/api/customer/auth/login').set('Origin', productionOrigin)
+      .send({ email: 'preview-customer@example.com', password: 'customer-password' });
+    assert.equal(customerLogin.status, 200);
+    assertCors(customerLogin, productionOrigin);
+
+    const order = await request(app).post('/api/orders').set('Origin', previewOrigin).set('Cookie', customerCookies)
+      .set('Idempotency-Key', 'cors-preview-order')
+      .send({ customer: { name: 'Preview Customer', email: 'preview-customer@example.com', phone: '9876543210', address: '12 Market Road, Central Bengaluru', houseStreet: '12 Market Road', locality: 'Central Bengaluru', city: 'Bengaluru', state: 'Karnataka', pin: '560001' }, paymentMethod: 'COD', items: [{ id: 'p1', quantity: 1 }] });
+    assert.equal(order.status, 201);
+    assertCors(order, previewOrigin);
+
+    const adminLogin = await request(app).post('/api/auth/login').set('Origin', productionOrigin)
+      .send({ email: 'admin@test.local', password: 'correct horse battery staple' });
+    assert.equal(adminLogin.status, 200);
+    assertCors(adminLogin, productionOrigin);
+    const adminCookies = adminLogin.headers['set-cookie'];
+    const adminCsrf = await request(app).get('/api/auth/csrf').set('Origin', productionOrigin).set('Cookie', adminCookies);
+    assert.equal(adminCsrf.status, 200);
+    assertCors(adminCsrf, productionOrigin);
+
+    const addedProduct = await request(app).post('/api/admin/products').set('Origin', previewOrigin).set('Cookie', adminCookies)
+      .set('X-CSRF-Token', adminCsrf.body.data.token)
+      .send({ name: 'Preview Product', category: 'Brass', price: 1250, stock: 2, variants: [], verificationStatus: 'verified' });
+    assert.equal(addedProduct.status, 201);
+    assertCors(addedProduct, previewOrigin);
+    const adminProductList = await request(app).get('/api/admin/products').set('Origin', productionOrigin).set('Cookie', adminCookies);
+    assert.equal(adminProductList.status, 200);
+    assertCors(adminProductList, productionOrigin);
+
+    const updatedOrder = await request(app).patch(`/api/admin/orders/${order.body.data.id}/status`)
+      .set('Origin', productionOrigin).set('Cookie', adminCookies).set('X-CSRF-Token', adminCsrf.body.data.token)
+      .send({ status: 'confirmed' });
+    assert.equal(updatedOrder.status, 200);
+    assertCors(updatedOrder, productionOrigin);
+    const codCollection = await request(app).post(`/api/admin/orders/${order.body.data.id}/payment/collect-cod`)
+      .set('Origin', previewOrigin).set('Cookie', adminCookies).set('X-CSRF-Token', adminCsrf.body.data.token);
+    assert.equal(codCollection.status, 200);
+    assertCors(codCollection, previewOrigin);
+  } finally {
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = previousNodeEnv;
+    if (previousFrontendOrigin === undefined) delete process.env.FRONTEND_ORIGIN; else process.env.FRONTEND_ORIGIN = previousFrontendOrigin;
+    if (previousFrontendOrigins === undefined) delete process.env.FRONTEND_ORIGINS; else process.env.FRONTEND_ORIGINS = previousFrontendOrigins;
   }
 });
 

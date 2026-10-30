@@ -26,7 +26,8 @@ export function productInput(body = {}, { partial = false } = {}) {
   if (!partial || body.sourcePage !== undefined || body.source_page !== undefined) value.source_page = body.sourcePage ?? body.source_page ? Number(body.sourcePage ?? body.source_page) : null;
   if (!partial || body.verificationStatus !== undefined || body.verification_status !== undefined) { const status = body.verificationStatus ?? body.verification_status; value.verification_status = statuses.includes(status) ? status : 'pending'; }
   if (!partial || body.active !== undefined) value.active = body.active === undefined ? true : body.active === true || body.active === 'true';
-  if ((!partial && !value.name) || (!partial && !value.category)) throw new Error('Name and category are required');
+  if (!partial && !value.name) throw new Error('Product name is required');
+  if (!partial && !value.category) throw new Error('Category is required');
   if (value.price_inr !== null && value.price_inr !== undefined && (!Number.isInteger(value.price_inr) || value.price_inr < 0)) throw new Error('Price must be a non-negative whole number or blank');
   if (value.discount_percent !== null && value.discount_percent !== undefined && (!Number.isFinite(value.discount_percent) || value.discount_percent < 0 || value.discount_percent > 100)) throw new Error('Discount must be between 0 and 100 percent');
   if (value.stock !== null && value.stock !== undefined && (!Number.isInteger(value.stock) || value.stock < 0)) throw new Error('Stock must be a non-negative whole number or blank');

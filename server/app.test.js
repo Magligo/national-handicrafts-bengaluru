@@ -5,10 +5,11 @@ import bcrypt from 'bcryptjs';
 import { createApp, validateGoogleIdentity } from './app.js';
 import { adminAuthenticationSource } from './auth.js';
 import { MemoryRepository } from './repository.js';
+import { cloudinaryConfigurationError } from './storage/cloudinary.js';
 
-async function setup(role = 'admin') {
+async function setup(role = 'admin', imageUploader = async (file) => ({ url: `test-upload://${file.originalname}` })) {
   const repo = new MemoryRepository({ adminUsers: [{ id: 'a1', email: 'admin@test.local', password_hash: await bcrypt.hash('correct horse battery staple', 10), role }] });
-  const { app } = createApp({ repo, secret: 'test-secret', imageUploader: async (file) => ({ url: `test-upload://${file.originalname}` }) });
+  const { app } = createApp({ repo, secret: 'test-secret', imageUploader });
   return { app, repo };
 }
 
@@ -334,6 +335,49 @@ test('failed product creation can be retried with the same idempotency key', asy
   assert.equal(repo.products.length, 1);
 });
 
+test('admin multipart publish payload accepts optional catalogue fields and preserves variants', async () => {
+  const { app, repo } = await setup();
+  const auth = await signIn(app);
+  const response = await adminRequest(app, auth, 'post', '/api/admin/products')
+    .set('Idempotency-Key', 'multipart-product-publish')
+    .field('name', 'Optional Details Diya').field('category', 'Brass').field('price', '2800').field('discountPercent', '')
+    .field('stock', '4').field('unit', 'Piece').field('dimensions', '').field('weight', '').field('material', '')
+    .field('finish', '').field('availability', 'enquiry').field('sourceCatalogue', '').field('sourcePage', '')
+    .field('variants', JSON.stringify([{ id: 'small', name: 'Small', price_inr: 1800, stock: 2, source_review_status: 'verified' }]))
+    .field('specifications', JSON.stringify({ brand: '', material: '', countryOfOriginVerified: false, size: '', weight: '', length: '', width: '', height: '', diameter: '', capacity: '', capacityUnit: '', measurementUnit: '', pieces: '', itemsIncluded: '', accessories: '', packagingType: '', packagingColours: '', giftBox: true, usage: '', careInstructions: '', specialFeatures: '', additionalNotes: '', sourceReviewStatus: 'verified', sourceReviewNotes: '' }))
+    .field('verificationStatus', 'verified').field('active', 'true').field('mainImageIndex', '0');
+  assert.equal(response.status, 201, JSON.stringify(response.body));
+  assert.equal(response.body.data.active, true);
+  assert.equal(response.body.data.verification_status, 'verified');
+  assert.equal(response.body.data.variants.length, 1);
+  assert.equal(response.body.data.specifications.giftBox, true);
+  assert.equal((await request(app).get('/api/products')).body.data.filter((product) => product.id === response.body.data.id).length, 1);
+  assert.equal(repo.products.length, 1);
+});
+
+test('Cloudinary configuration failures return actionable service errors without creating a product', async () => {
+  const { app, repo } = await setup('admin', async () => { throw cloudinaryConfigurationError(); });
+  const auth = await signIn(app);
+  const response = await adminRequest(app, auth, 'post', '/api/admin/products')
+    .field('name', 'Image Needs Storage').field('category', 'Copper').field('variants', '[]')
+    .attach('images', Buffer.from('image'), { filename: 'product.png', contentType: 'image/png' });
+  assert.equal(response.status, 503);
+  assert.match(response.body.error, /CLOUDINARY_CLOUD_NAME.*CLOUDINARY_API_KEY.*CLOUDINARY_API_SECRET/);
+  assert.equal(repo.products.length, 0);
+});
+
+test('invalid product payloads return clear validation errors', async () => {
+  const { app, repo } = await setup();
+  const auth = await signIn(app);
+  const badPrice = await adminRequest(app, auth, 'post', '/api/admin/products').send({ name: 'Invalid Price', category: 'Brass', price: -1 });
+  assert.equal(badPrice.status, 400);
+  assert.match(badPrice.body.error, /Price must be a non-negative whole number/);
+  const badCategory = await adminRequest(app, auth, 'post', '/api/admin/products').send({ name: 'Invalid Category', category: 'Not a category' });
+  assert.equal(badCategory.status, 400);
+  assert.match(badCategory.body.error, /Category must be one of/);
+  assert.equal(repo.products.length, 0);
+});
+
 test('admin can upload multiple product images and select the main image', async () => {
   const { app } = await setup();
   const auth = await signIn(app);
@@ -341,6 +385,8 @@ test('admin can upload multiple product images and select the main image', async
   assert.equal(response.status, 201);
   assert.equal(response.body.data.image_paths.length, 2);
   assert.equal(response.body.data.image_path, response.body.data.image_paths[1]);
+  assert.equal(response.body.data.image_paths[0], 'test-upload://first.png');
+  assert.equal(response.body.data.image_paths[1], 'test-upload://second.png');
   const deleted = await adminRequest(app, auth, 'delete', `/api/admin/products/${response.body.data.id}`);
   assert.equal(deleted.status, 204);
 });

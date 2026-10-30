@@ -2,6 +2,13 @@ import { v2 as cloudinary } from 'cloudinary';
 
 const folder = 'national-handicrafts/products';
 
+export function cloudinaryConfigurationError() {
+  const error = new Error('Cloudinary image storage is not configured. Add CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET to the Render backend environment.');
+  error.status = 503;
+  error.code = 'CLOUDINARY_CONFIG_MISSING';
+  return error;
+}
+
 function hasCloudinaryConfig() {
   return Boolean(process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET);
 }
@@ -20,7 +27,7 @@ export function cloudinaryConfigured() {
 }
 
 export async function uploadProductImage(file) {
-  if (!cloudinaryConfigured()) throw new Error('Cloudinary image storage is not configured');
+  if (!cloudinaryConfigured()) throw cloudinaryConfigurationError();
   return new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream({
       folder,
@@ -29,7 +36,12 @@ export async function uploadProductImage(file) {
       unique_filename: true,
       overwrite: false,
     }, (error, result) => {
-      if (error || !result?.secure_url) return reject(new Error('Product image upload failed'));
+      if (error || !result?.secure_url) {
+        const uploadError = new Error('Cloudinary could not store the product image. Check the backend logs and Cloudinary availability.');
+        uploadError.status = 502;
+        uploadError.code = 'CLOUDINARY_UPLOAD_FAILED';
+        return reject(uploadError);
+      }
       resolve({ url: result.secure_url, publicId: result.public_id });
     });
     stream.end(file.buffer);

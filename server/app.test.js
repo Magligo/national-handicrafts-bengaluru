@@ -273,6 +273,27 @@ test('admin can add a verified product and it becomes public', async () => {
   assert.equal(products.body.data[0].name, 'Test Bell');
 });
 
+test('JSON API responses preserve Unicode product and customer names as UTF-8', async () => {
+  const { app, repo } = await setup();
+  const auth = await signIn(app);
+  const productName = 'ಬೆಂಗಳೂರು brass diya · पीतल — விளக்கு';
+  const customerName = 'ಮಾಗ್ಲಿಗೋ सिंह · Asha — દીવો';
+  const created = await adminRequest(app, auth, 'post', '/api/admin/products').send({ name: productName, category: 'Brass', price: 2800, stock: 2, variants: [], verificationStatus: 'verified' });
+  assert.equal(created.status, 201);
+  assert.match(created.headers['content-type'], /^application\/json; charset=utf-8$/i);
+  const publicProduct = await request(app).get(`/api/products/${created.body.data.id}`);
+  assert.equal(publicProduct.body.data.name, productName);
+  assert.equal((await repo.getProduct(created.body.data.id)).name, productName);
+  const registered = await request(app).post('/api/customer/auth/register').send({ name: customerName, email: 'unicode@example.com', password: 'unicode-password-123' });
+  assert.equal(registered.status, 201);
+  assert.match(registered.headers['content-type'], /^application\/json; charset=utf-8$/i);
+  assert.equal(registered.body.data.name, customerName);
+  assert.equal((await repo.findCustomer('unicode@example.com')).name, customerName);
+  const session = await request(app).get('/api/customer/auth/me').set('Cookie', registered.headers['set-cookie']);
+  assert.equal(session.status, 200);
+  assert.equal(session.body.data.name, customerName);
+});
+
 test('product creation is idempotent for repeated publication submissions', async () => {
   const { app, repo } = await setup();
   const auth = await signIn(app);

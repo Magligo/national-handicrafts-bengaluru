@@ -1,7 +1,9 @@
 import { API, API_ORIGIN, ASSET_ORIGIN } from '../config/api.js';
 import { NEUTRAL_IMAGE_FALLBACK, resolveImageUrl } from './image.js';
+import { formatPrice } from './currency.js';
 
 export { API, API_ORIGIN, ASSET_ORIGIN };
+export { formatPrice };
 
 /** Perform a same-origin-capable API request and return the parsed response body. */
 export async function api(path, options = {}) {
@@ -66,8 +68,4 @@ export async function authenticateAccount({ email, password }) {
 
 export function imageUrl(path) {
   return path ? resolveImageUrl(path, ASSET_ORIGIN) : NEUTRAL_IMAGE_FALLBACK;
-}
-
-export function formatPrice(price) {
-  return price == null ? 'Price on request' : `\u20B9${Number(price).toLocaleString('en-IN')}`;
 }

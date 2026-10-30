@@ -21,6 +21,8 @@ export async function runMigrations(connectionString = process.env.DATABASE_URL)
   });
   const client = await pool.connect();
   try {
+    const encoding = await client.query('SHOW server_encoding');
+    assertUtf8DatabaseEncoding(encoding.rows[0]?.server_encoding);
     await client.query(`CREATE TABLE IF NOT EXISTS schema_migrations (id TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
     const files = ['schema.sql', ...(await fs.readdir(path.join(serverRoot, 'migrations'))).filter((file) => file.endsWith('.sql')).sort()];
     for (const file of files) {
@@ -42,5 +44,11 @@ export async function runMigrations(connectionString = process.env.DATABASE_URL)
   } finally {
     client.release();
     await pool.end();
+  }
+}
+
+export function assertUtf8DatabaseEncoding(encoding) {
+  if (String(encoding || '').toUpperCase() !== 'UTF8') {
+    throw new Error(`PostgreSQL server encoding must be UTF8 (received ${encoding || 'unknown'}).`);
   }
 }

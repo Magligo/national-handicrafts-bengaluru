@@ -1,10 +1,8 @@
 const configuredApi = import.meta.env.VITE_API_URL?.trim();
 
-if (!configuredApi && import.meta.env.PROD) {
-  throw new Error('VITE_API_URL must be configured for production builds.');
-}
-
-const apiBase = configuredApi || 'http://localhost:4000/api';
+// Proxy production API traffic through the storefront origin so browsers keep
+// the customer session cookie even when third-party cookies are restricted.
+const apiBase = import.meta.env.PROD ? '/api' : configuredApi || 'http://localhost:4000/api';
 
 const configuredAssetOrigin = import.meta.env.VITE_ASSET_ORIGIN?.trim();
 const productionAssetOrigin = 'https://national-handicrafts-bengaluru.onrender.com';

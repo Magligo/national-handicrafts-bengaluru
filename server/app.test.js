@@ -489,16 +489,34 @@ test('Google sign-in creates and reuses a provider identity without a password',
   assert.ok(first.headers['set-cookie'].some((cookie) => cookie.startsWith('nh_customer_token=')));
 });
 
+test('Google customer session survives auth/me, keeps CSRF protection, and logs out', async () => {
+  const { app } = createApp({ repo: new MemoryRepository(), secret: 'test-secret', googleClientId: 'google-client', googleVerifier: async () => ({ google_id: 'google-session-user', email: 'google-session@example.com', name: 'Google Session', avatar_url: null }) });
+  const login = await request(app).post('/api/customer/auth/google').send({ credential: 'verified-by-test-double' });
+  assert.equal(login.status, 200);
+  const cookie = login.headers['set-cookie'];
+  const me = await request(app).get('/api/customer/auth/me').set('Cookie', cookie);
+  assert.equal(me.status, 200);
+  assert.equal(me.body.data.email, 'google-session@example.com');
+  const csrf = await request(app).get('/api/customer/auth/csrf').set('Cookie', cookie);
+  assert.equal(csrf.status, 200);
+  const logout = await request(app).post('/api/customer/auth/logout').set('Cookie', cookie).set('X-CSRF-Token', csrf.body.data.token);
+  assert.equal(logout.status, 204);
+  const afterLogout = await request(app).get('/api/customer/auth/me').set('Cookie', logout.headers['set-cookie']);
+  assert.equal(afterLogout.status, 401);
+});
+
 test('production customer sessions allow credentialed Vercel-to-Render requests', async () => {
   const previousNodeEnv = process.env.NODE_ENV;
   const previousFrontendOrigin = process.env.FRONTEND_ORIGIN;
   process.env.NODE_ENV = 'production';
   process.env.FRONTEND_ORIGIN = 'https://national-handicrafts-bengaluru.vercel.app';
   try {
-    const { app } = createApp({ repo: new MemoryRepository(), secret: 'test-secret' });
-    const response = await request(app).post('/api/customer/auth/register').send({ name: 'Cross Site', email: 'cross-site@example.com', password: 'customer-password' });
+    const { app } = createApp({ repo: new MemoryRepository(), secret: 'test-secret', corsOrigin: 'https://national-handicrafts-bengaluru.vercel.app' });
+    const response = await request(app).post('/api/customer/auth/register').set('Origin', 'https://national-handicrafts-bengaluru.vercel.app').send({ name: 'Cross Site', email: 'cross-site@example.com', password: 'customer-password' });
     assert.equal(response.status, 201);
     assert.ok(response.headers['set-cookie'].every((cookie) => /SameSite=None/.test(cookie) && /Secure/.test(cookie)));
+    assert.equal(response.headers['access-control-allow-origin'], 'https://national-handicrafts-bengaluru.vercel.app');
+    assert.equal(response.headers['access-control-allow-credentials'], 'true');
   } finally {
     if (previousNodeEnv === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = previousNodeEnv;
     if (previousFrontendOrigin === undefined) delete process.env.FRONTEND_ORIGIN; else process.env.FRONTEND_ORIGIN = previousFrontendOrigin;

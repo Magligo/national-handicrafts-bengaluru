@@ -31,7 +31,7 @@ export function ShopBannerCarousel() {
   useEffect(() => { if (index >= banners.length) setIndex(0); }, [banners.length, index]);
   if (!banners.length) return null;
   const move = (step) => setIndex((current) => (current + step + banners.length) % banners.length);
-  return <section className="shop-banner" aria-label="Shop promotions" aria-roledescription={banners.length > 1 ? 'carousel' : undefined}>
+  return <div className="shop-banner-wrap"><section className="shop-banner" aria-label="Shop promotions" aria-roledescription={banners.length > 1 ? 'carousel' : undefined}>
     <div className="shop-banner-track" style={{ transform: `translateX(-${index * 100}%)` }}>
       {banners.map((banner, slideIndex) => {
         const content = banner.media_type === 'video'
@@ -48,7 +48,7 @@ export function ShopBannerCarousel() {
       <button type="button" className="shop-banner-arrow next" aria-label="Next promotion" onClick={() => move(1)}>›</button>
       <div className="shop-banner-dots" role="group" aria-label="Choose promotion">{banners.map((banner, dotIndex) => <button key={banner.id} type="button" aria-label={`Show promotion ${dotIndex + 1}`} aria-current={dotIndex === index ? 'true' : undefined} className={dotIndex === index ? 'active' : ''} onClick={() => setIndex(dotIndex)} />)}</div>
     </>}
-  </section>;
+  </section></div>;
 }
 
 function CatalogueSkeleton() {

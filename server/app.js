@@ -20,7 +20,7 @@ const root = path.dirname(fileURLToPath(import.meta.url));
 const localDevelopmentOrigins = ['http://localhost:5173', 'http://localhost:5174'];
 const projectVercelPreviewOrigin = /^https:\/\/national-handicrafts-bengaluru-(?:[a-z0-9]{6,}|git-[a-z0-9]+(?:-[a-z0-9]+)*)-magligo\.vercel\.app$/i;
 const corsMethods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'];
-const corsHeaders = ['Content-Type', 'X-CSRF-Token', 'Idempotency-Key'];
+const corsHeaders = ['Content-Type', 'X-CSRF-Token', 'Idempotency-Key', 'X-Request-ID'];
 const storage = multer.memoryStorage();
 const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024, files: 8 }, fileFilter: (_req, file, cb) => /^image\/(jpeg|png|webp)$/.test(file.mimetype) ? cb(null, true) : cb(new Error('Only JPEG, PNG, and WebP images are allowed')) });
 const galleryStorage = multer.diskStorage({ destination: os.tmpdir(), filename: (_req, file, cb) => cb(null, `nh-gallery-${randomBytes(16).toString('hex')}${path.extname(file.originalname).toLowerCase()}`) });
@@ -69,6 +69,18 @@ export function createApp({ repo = createRepository(), secret = serverConfig.adm
   const sessionSecret = secret || 'local-only-change-me';
   const customerSessionSecret = process.env.CUSTOMER_SESSION_SECRET || sessionSecret;
   const app = express();
+  const publicCatalogueCache = new Map();
+  const invalidatePublicCatalogue = () => publicCatalogueCache.clear();
+  app.use((req, res, next) => {
+    const supplied = req.get('X-Request-ID');
+    req.requestId = supplied && /^[\w.-]{1,100}$/.test(supplied) ? supplied : createHash('sha1').update(`${Date.now()}-${Math.random()}`).digest('hex').slice(0, 16);
+    const startedAt = process.hrtime.bigint();
+    res.set('X-Request-ID', req.requestId);
+    res.on('finish', () => {
+      if (req.path === '/api/products') console.info('[request] Catalogue response', { requestId: req.requestId, status: res.statusCode, durationMs: Number(process.hrtime.bigint() - startedAt) / 1e6 });
+    });
+    next();
+  });
   const cleanupCloudinaryAsset = async (publicId, url, mediaType = 'image', exclude = {}) => { if (!publicId) return; if (await repo.isCloudinaryAssetReferenced?.(publicId, url, exclude)) return; try { await mediaDeleter(publicId, mediaType); } catch (error) { console.error('Cloudinary cleanup failed', { mediaType, code: error?.code || 'UNKNOWN' }); } };
   const adminLoginRateLimit = createRateLimit({ message: 'Too many failed admin login attempts. Try again later.' });
   const customerLoginRateLimit = createRateLimit({ message: 'Too many failed account login attempts. Try again later.' });
@@ -109,13 +121,24 @@ export function createApp({ repo = createRepository(), secret = serverConfig.adm
   app.get('/api/products', async (req, res, next) => {
     const startedAt = Date.now();
     try {
-      res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
-      const products = (await repo.listProducts({ q: req.query.q || '', category: req.query.category || '' })).map(publicProduct);
+      // Admin edits must be visible promptly; use the short-lived browser snapshot
+      // instead of an edge cache that cannot be invalidated across all instances.
+      res.set('Cache-Control', 'public, max-age=0, must-revalidate');
+      const query = { q: req.query.q || '', category: req.query.category || '' };
+      const cacheKey = JSON.stringify(query);
+      const cached = publicCatalogueCache.get(cacheKey);
+      const products = cached && cached.expiresAt > Date.now()
+        ? cached.products
+        : (await repo.listProducts({ ...query, requestId: req.requestId })).map(publicProduct);
+      if (!cached || cached.expiresAt <= Date.now()) {
+        if (publicCatalogueCache.size >= 100) publicCatalogueCache.clear();
+        publicCatalogueCache.set(cacheKey, { products, expiresAt: Date.now() + 5000 });
+      }
       const durationMs = Date.now() - startedAt;
-      if (durationMs >= 3000) console.info('[catalogue] Product list completed slowly', { durationMs, count: products.length });
+      if (durationMs >= 1000) console.info('[catalogue] Product list completed slowly', { requestId: req.requestId, durationMs, count: products.length });
       res.json({ data: products });
     } catch (error) {
-      console.warn('[catalogue] Product list failed', { durationMs: Date.now() - startedAt, code: error.code || 'application_error', name: error.name || 'Error' });
+      console.warn('[catalogue] Product list failed', { requestId: req.requestId, durationMs: Date.now() - startedAt, code: error.code || 'application_error', name: error.name || 'Error' });
       next(error);
     }
   });
@@ -345,15 +368,18 @@ export function createApp({ repo = createRepository(), secret = serverConfig.adm
       if (creationKey) {
         const result = await repo.createProductIdempotently(input, creationKey);
         if (result.duplicate) for (const item of uploaded) await cleanupCloudinaryAsset(item.publicId, item.url, 'image');
+        else invalidatePublicCatalogue();
         return res.status(result.duplicate ? 200 : 201).json({ data: result.product, ...(result.duplicate ? { duplicate: true } : {}) });
       }
-      res.status(201).json({ data: await repo.createProduct(input) });
+      const created = await repo.createProduct(input);
+      invalidatePublicCatalogue();
+      res.status(201).json({ data: created });
     } catch (e) { await Promise.allSettled(uploadedAssets.map((item) => cleanupCloudinaryAsset(item.publicId, item.url, 'image'))); next(e); }
   });
-  app.patch('/api/admin/products/:id', adminMutation, upload.array('images', 8), async (req, res, next) => { let newlyUploaded = []; try { const current = await repo.getProduct(req.params.id); if (!current) return res.status(404).json({ error: 'Product not found' }); const input = productInput(req.body, { partial: true }); await uploadProductImages(req.files || [], imageUploader, (item) => newlyUploaded.push(item)); if (newlyUploaded.length) { const imagePaths = newlyUploaded.map((item) => item.url); const mainIndex = Math.max(0, Math.min(Number(req.body.mainImageIndex || 0), imagePaths.length - 1)); input.image_paths = imagePaths; input.image_public_ids = newlyUploaded.map((item) => item.publicId).filter(Boolean); input.image_path = imagePaths[mainIndex]; } const updated = await repo.updateProduct(req.params.id, input); if (!updated) return res.status(404).json({ error: 'Product not found' }); if (newlyUploaded.length) for (let i = 0; i < (current.image_public_ids || []).length; i += 1) await cleanupCloudinaryAsset(current.image_public_ids[i], current.image_paths?.[i] || current.image_path, 'image', { id: current.id }); res.json({ data: updated }); } catch (e) { await Promise.allSettled(newlyUploaded.map((item) => cleanupCloudinaryAsset(item.publicId, item.url, 'image'))); next(e); } });
-  app.post('/api/admin/products/:id/publish', adminMutation, async (req, res, next) => { try { const updated = await repo.updateProduct(req.params.id, { verification_status: 'verified', active: true }); if (!updated) return res.status(404).json({ error: 'Product not found' }); res.json({ data: updated }); } catch (e) { next(e); } });
-  app.post('/api/admin/products/:id/unpublish', adminMutation, async (req, res, next) => { try { const updated = await repo.updateProduct(req.params.id, { active: false }); if (!updated) return res.status(404).json({ error: 'Product not found' }); res.json({ data: updated }); } catch (e) { next(e); } });
-  app.delete('/api/admin/products/:id', adminMutation, async (req, res, next) => { try { const product = await repo.getProduct(req.params.id); if (!product || !await repo.deleteProduct(req.params.id)) return res.status(404).json({ error: 'Product not found' }); removeUploadedFiles(product); for (let i = 0; i < (product.image_public_ids || []).length; i += 1) await cleanupCloudinaryAsset(product.image_public_ids[i], product.image_paths?.[i] || product.image_path, 'image', { id: product.id }); res.status(204).end(); } catch (e) { next(e); } });
+  app.patch('/api/admin/products/:id', adminMutation, upload.array('images', 8), async (req, res, next) => { let newlyUploaded = []; try { const current = await repo.getProduct(req.params.id); if (!current) return res.status(404).json({ error: 'Product not found' }); const input = productInput(req.body, { partial: true }); await uploadProductImages(req.files || [], imageUploader, (item) => newlyUploaded.push(item)); if (newlyUploaded.length) { const imagePaths = newlyUploaded.map((item) => item.url); const mainIndex = Math.max(0, Math.min(Number(req.body.mainImageIndex || 0), imagePaths.length - 1)); input.image_paths = imagePaths; input.image_public_ids = newlyUploaded.map((item) => item.publicId).filter(Boolean); input.image_path = imagePaths[mainIndex]; } const updated = await repo.updateProduct(req.params.id, input); if (!updated) return res.status(404).json({ error: 'Product not found' }); invalidatePublicCatalogue(); if (newlyUploaded.length) for (let i = 0; i < (current.image_public_ids || []).length; i += 1) await cleanupCloudinaryAsset(current.image_public_ids[i], current.image_paths?.[i] || current.image_path, 'image', { id: current.id }); res.json({ data: updated }); } catch (e) { await Promise.allSettled(newlyUploaded.map((item) => cleanupCloudinaryAsset(item.publicId, item.url, 'image'))); next(e); } });
+  app.post('/api/admin/products/:id/publish', adminMutation, async (req, res, next) => { try { const updated = await repo.updateProduct(req.params.id, { verification_status: 'verified', active: true }); if (!updated) return res.status(404).json({ error: 'Product not found' }); invalidatePublicCatalogue(); res.json({ data: updated }); } catch (e) { next(e); } });
+  app.post('/api/admin/products/:id/unpublish', adminMutation, async (req, res, next) => { try { const updated = await repo.updateProduct(req.params.id, { active: false }); if (!updated) return res.status(404).json({ error: 'Product not found' }); invalidatePublicCatalogue(); res.json({ data: updated }); } catch (e) { next(e); } });
+  app.delete('/api/admin/products/:id', adminMutation, async (req, res, next) => { try { const product = await repo.getProduct(req.params.id); if (!product || !await repo.deleteProduct(req.params.id)) return res.status(404).json({ error: 'Product not found' }); invalidatePublicCatalogue(); removeUploadedFiles(product); for (let i = 0; i < (product.image_public_ids || []).length; i += 1) await cleanupCloudinaryAsset(product.image_public_ids[i], product.image_paths?.[i] || product.image_path, 'image', { id: product.id }); res.status(204).end(); } catch (e) { next(e); } });
   app.get('/api/admin/orders', admin, async (_req, res, next) => { try { res.json({ data: await repo.listOrders() }); } catch (e) { next(e); } });
   app.get('/api/admin/payment-settings', admin, (_req, res) => res.json({ data: paymentConfig() }));
   app.patch('/api/admin/orders/:id/status', adminMutation, async (req, res, next) => { try { if (!orderStatuses.includes(req.body?.status)) return res.status(400).json({ error: 'Invalid order status' }); const order = await repo.updateOrderStatus(req.params.id, req.body.status); if (!order) return res.status(404).json({ error: 'Order not found' }); if (order.invalidTransition) return res.status(409).json({ error: 'This order status transition is not allowed' }); res.json({ data: order }); } catch (e) { next(e); } });

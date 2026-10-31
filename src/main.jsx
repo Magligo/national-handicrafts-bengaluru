@@ -9,7 +9,7 @@ import CatalogueProductCard from './components/product/ProductCard.jsx';
 import ScrollToTop from './ScrollToTop.jsx';
 import { CATEGORIES as categories, CATEGORY_IMAGES as categoryImages } from './constants/catalogue.js';
 import { api, authenticateAccount, formatPrice, imageUrl } from './services/api.js';
-import { loadProducts } from './services/catalogue.js';
+import { cacheProducts, loadProducts, readCachedProducts } from './services/catalogue.js';
 import { animateProductToCart } from './services/cartAnimation.js';
 import { resolveProfileDestination } from './services/profileSession.js';
 import { productPurchaseState } from '../shared/productAvailability.js';
@@ -54,10 +54,12 @@ function App() {
   const [checkoutFromCart, setCheckoutFromCart] = useState(false);
   const [skipNextCustomerSessionCheck, setSkipNextCustomerSessionCheck] = useState(false);
   const [checkoutSessionVerified, setCheckoutSessionVerified] = useState(false);
-  const [products, setProducts] = useState([]);
-  const [catalogueState, setCatalogueState] = useState('loading');
+  const [products, setProducts] = useState(() => readCachedProducts() || []);
+  const [catalogueState, setCatalogueState] = useState(() => readCachedProducts() ? 'ready' : 'loading');
   const [catalogueError, setCatalogueError] = useState('');
   const catalogueRequestRef = useRef(null);
+  const catalogueRenderStartRef = useRef(null);
+  const catalogueRenderRequestIdRef = useRef(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [catalogueFiltersOpen, setCatalogueFiltersOpen] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
@@ -77,25 +79,33 @@ function App() {
   };
   const refresh = () => {
     if (catalogueRequestRef.current) return catalogueRequestRef.current;
-    setCatalogueState('loading');
+    if (!products.length) setCatalogueState('loading');
     setCatalogueError('');
-    const request = loadProducts()
+    const request = loadProducts({ onTiming: (timing) => { catalogueRenderRequestIdRef.current = timing.requestId; console.info('[catalogue] Frontend request completed', timing); } })
       .then((response) => {
         const nextProducts = Array.isArray(response?.data) ? response.data : [];
+        cacheProducts(nextProducts);
+        catalogueRenderStartRef.current = globalThis.performance?.now?.() ?? Date.now();
         setProducts(nextProducts);
         reconcile(nextProducts);
         setCatalogueState('ready');
         return nextProducts;
       })
       .catch(() => {
-        setCatalogueState('error');
+        setCatalogueState((state) => products.length ? state : 'error');
         setCatalogueError('We could not load the collection just now. Please check your connection and try again.');
-        setProducts([]);
+        if (!products.length) setProducts([]);
       })
       .finally(() => { catalogueRequestRef.current = null; });
     catalogueRequestRef.current = request;
     return request;
   };
+  useEffect(() => {
+    if (catalogueRenderStartRef.current == null) return;
+    const durationMs = Math.round((globalThis.performance?.now?.() ?? Date.now()) - catalogueRenderStartRef.current);
+    console.info('[catalogue] Product render committed', { requestId: catalogueRenderRequestIdRef.current, durationMs, count: products.length });
+    catalogueRenderStartRef.current = null;
+  }, [products]);
   useEffect(() => { refresh(); const onPopState = () => { const nextParams = new URLSearchParams(location.search); const nextPage = location.pathname === '/gallery' ? 'gallery' : location.pathname === '/profile' ? 'profile' : location.pathname === '/admin' || nextParams.get('admin') === '1' ? 'admin' : nextParams.get('product') ? 'detail' : ['password-reset', 'password-recovery'].includes(nextParams.get('page')) ? 'password-recovery' : nextParams.get('page') || (['about', 'products'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'home'); setSelectedProductId(nextParams.get('product')); setPage(nextPage); setNavigationKey((key) => key + 1); }; addEventListener('popstate', onPopState); return () => removeEventListener('popstate', onPopState); }, []);
   // The splash is brand polish, not an API gate: data may still be loading underneath it.
   useEffect(() => { const timer = setTimeout(() => setShowSplash(false), 700); return () => clearTimeout(timer); }, []);

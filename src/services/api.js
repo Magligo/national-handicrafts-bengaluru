@@ -17,9 +17,15 @@ export async function api(path, options = {}) {
   let body = null;
   try {
     response = await fetch(`${API}${path}`, { credentials: 'include', ...requestOptions, signal: controller.signal });
+    const parseStartedAt = globalThis.performance?.now?.() ?? Date.now();
     try { body = response.status === 204 ? null : await response.json(); } catch (error) {
       if (controller.signal.aborted) throw error;
       body = null;
+    } finally {
+      if (path === '/products') {
+        const requestId = requestOptions.headers?.['X-Request-ID'] || response.headers.get('X-Request-ID') || 'unavailable';
+        console.info('[catalogue] Frontend JSON parsing completed', { requestId, durationMs: Math.round((globalThis.performance?.now?.() ?? Date.now()) - parseStartedAt) });
+      }
     }
   } catch (error) {
     if (controller.signal.aborted && !callerSignal?.aborted) {

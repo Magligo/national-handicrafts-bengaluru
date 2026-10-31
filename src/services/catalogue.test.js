@@ -1,6 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { loadProducts } from './catalogue.js';
+import { cacheProducts, loadProducts, readCachedProducts } from './catalogue.js';
+
+test('uses only a recent versioned public catalogue snapshot', () => {
+  const values = new Map();
+  const storage = { getItem: (key) => values.get(key) || null, setItem: (key, value) => values.set(key, value) };
+  const products = [{ id: 'verified-product', active: true, verification_status: 'verified' }, { id: 'unpublished-product', active: false, verification_status: 'verified' }];
+  cacheProducts(products, storage, 1000);
+  assert.deepEqual(readCachedProducts(storage, 1100), [products[0]]);
+  assert.equal(readCachedProducts(storage, 17000), null);
+});
 
 test('retries transient catalogue failures and preserves the longer request timeout', async () => {
   let calls = 0;

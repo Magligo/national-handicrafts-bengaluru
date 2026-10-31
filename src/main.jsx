@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import QRCode from 'qrcode';
 import './styles.css';
 import SafeImage from './components/common/SafeImage.jsx';
-import ProductsSection from './components/product/ProductsSection.jsx';
+import ProductsSection, { ShopBannerCarousel } from './components/product/ProductsSection.jsx';
 import CatalogueProductCard from './components/product/ProductCard.jsx';
 import ScrollToTop from './ScrollToTop.jsx';
 import { CATEGORIES as categories, CATEGORY_IMAGES as categoryImages } from './constants/catalogue.js';
@@ -105,9 +105,9 @@ function App() {
   const buyNow = (product) => requireCheckout([{ id: product.id, name: product.name, category: product.category, price_inr: product.price_inr, stock: product.stock, image_path: product.image_path || null, variantId: product.variantId || null, variant: product.variant || null, quantity: 1 }]);
   const checkoutCart = () => { const unavailable = cart.find((item) => !productPurchaseState(item, item.variant).canPurchase); if (unavailable) { window.alert(`${unavailable.name} is no longer available to purchase. Remove it or choose another option.`); return; } return requireCheckout(cart, { fromCart: true }); };
   const openCatalogueFilters = () => { if (page !== 'products') navigate('products'); setCatalogueFiltersOpen(true); };
-  return <><ScrollToTop page={page} pathname={location.pathname} navigationKey={navigationKey} />{showSplash && <LoadingScreen />}<SiteNavigationV2 page={page} setPage={navigate} cartCount={cart.reduce((sum, item) => sum + item.quantity, 0)} searchQuery={searchQuery} setSearchQuery={setSearchQuery} onProfileClick={openProfile} profileNavigationBusy={profileNavigationBusy} profileNavigationError={profileNavigationError} /><main>
+  return <><ScrollToTop page={page} pathname={location.pathname} navigationKey={navigationKey} />{showSplash && <LoadingScreen />}<SiteNavigationV2 page={page} setPage={navigate} cartCount={cart.reduce((sum, item) => sum + item.quantity, 0)} searchQuery={searchQuery} setSearchQuery={setSearchQuery} onProfileClick={openProfile} profileNavigationBusy={profileNavigationBusy} profileNavigationError={profileNavigationError} />{page === 'products' && <div className="shop-banner-wrap"><ShopBannerCarousel /></div>}<main>
     {page === 'home' && <LandingHero setPage={navigate} />}
-    {['home', 'products'].includes(page) && <div id="products" className="scroll-section"><ProductsSection showShopBanners={page === 'products'} products={products} refresh={refresh} openProduct={openProduct} addToCart={addToCart} buyNow={buyNow} catalogueState={catalogueState} catalogueError={catalogueError} searchQuery={searchQuery} setSearchQuery={setSearchQuery} filterOpen={catalogueFiltersOpen} setFilterOpen={setCatalogueFiltersOpen} /></div>}
+    {['home', 'products'].includes(page) && <div id="products" className="scroll-section"><ProductsSection products={products} refresh={refresh} openProduct={openProduct} addToCart={addToCart} buyNow={buyNow} catalogueState={catalogueState} catalogueError={catalogueError} searchQuery={searchQuery} setSearchQuery={setSearchQuery} filterOpen={catalogueFiltersOpen} setFilterOpen={setCatalogueFiltersOpen} /></div>}
     {page === 'about' && <div id="about" className="scroll-section"><About /></div>}
     {page === 'detail' && <ProductDetailV2 id={selectedProductId} setPage={navigate} addToCart={addToCart} buyNow={buyNow} />}
     {page === 'contact' && <Contact />}
@@ -121,13 +121,13 @@ function App() {
 
 function MobileBottomNavigation({ page, onNavigate, onOpenFilters, onAccountClick, profileNavigationBusy, cartCount, filtersOpen }) {
   const accountActive = page === 'profile' || page === 'admin';
-  return <nav className="mobile-bottom-navigation" aria-label="Mobile navigation">
-    <button type="button" className={page === 'home' || page === 'products' ? 'active' : ''} aria-current={page === 'home' || page === 'products' ? 'page' : undefined} onClick={() => onNavigate('products')}>
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h16l-1.2 12H5.2L4 8Z" /><path d="M9 9V6.5a3 3 0 0 1 6 0V9" /></svg><span>Shop</span>
+  return <nav className={`mobile-bottom-navigation${page === 'products' ? ' filters-visible' : ''}`} aria-label="Mobile navigation">
+    <button type="button" className={page === 'home' ? 'active' : ''} aria-current={page === 'home' ? 'page' : undefined} onClick={() => onNavigate('home')}>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1V10Z" /></svg><span>Home</span>
     </button>
-    <button type="button" aria-expanded={filtersOpen} aria-label="Open filters" onClick={onOpenFilters}>
+    {page === 'products' && <button type="button" aria-expanded={filtersOpen} aria-label="Open filters" onClick={onOpenFilters}>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M7 12h10m-7 6h4" /><circle cx="8" cy="6" r="1.5" /><circle cx="15" cy="12" r="1.5" /><circle cx="11" cy="18" r="1.5" /></svg><span>Filters</span>
-    </button>
+    </button>}
     <button type="button" className={page === 'cart' ? 'active' : ''} aria-current={page === 'cart' ? 'page' : undefined} aria-label={`Cart${cartCount ? `, ${cartCount} items` : ''}`} onClick={() => onNavigate('cart')}>
       <span className="mobile-bottom-cart-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8.5h14l-1 12H6l-1-12Z" /><path d="M9 9V7a3 3 0 0 1 6 0v2" /></svg>{cartCount > 0 && <span className="mobile-bottom-cart-count">{cartCount}</span>}</span><span>Cart</span>
     </button>

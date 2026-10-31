@@ -7,7 +7,7 @@ import { filterAndSortProducts } from '../../services/catalogueFilters.js';
 
 const defaultFilters = { category: '', minPrice: '', maxPrice: '', availability: 'all', sort: 'featured' };
 
-function ShopBannerCarousel() {
+export function ShopBannerCarousel() {
   const [banners, setBanners] = useState([]);
   const [index, setIndex] = useState(0);
   useEffect(() => {
@@ -67,7 +67,7 @@ function FilterControls({ values, onChange }) {
   </>;
 }
 
-export default function ProductsSection({ showShopBanners = false, products, refresh, openProduct, addToCart, buyNow, catalogueState, catalogueError, searchQuery, setSearchQuery, filterOpen, setFilterOpen }) {
+export default function ProductsSection({ products, refresh, openProduct, addToCart, buyNow, catalogueState, catalogueError, searchQuery, setSearchQuery, filterOpen, setFilterOpen }) {
   const [filters, setFilters] = useState(defaultFilters);
   const [draftFilters, setDraftFilters] = useState(defaultFilters);
   const updateFilter = (key, value) => setFilters((current) => ({ ...current, [key]: value }));
@@ -91,7 +91,6 @@ export default function ProductsSection({ showShopBanners = false, products, ref
       {filterOpen && <div className="filter-drawer" role="dialog" aria-modal="true" aria-label="Filter and sort products"><div className="filter-drawer-heading"><strong>Filter &amp; Sort</strong><button type="button" onClick={() => setFilterOpen(false)} aria-label="Close filters">×</button></div><div className="catalogue-filter-mobile"><FilterControls values={draftFilters} onChange={updateDraftFilter} /></div><div className="filter-drawer-actions"><button className="button secondary" type="button" onClick={clearFilters}>Clear all</button><button className="button primary" type="button" onClick={applyFilters}>Apply filters</button></div></div>}
     </div>
     <div className="catalogue-results-bar"><p>{catalogueState === 'loading' ? 'Loading verified products…' : catalogueState === 'error' ? 'Catalogue temporarily unavailable' : invalidRange ? 'Choose a maximum price greater than the minimum.' : `Showing ${filtered.length} product${filtered.length === 1 ? '' : 's'}`}</p><span>{filterSummary}{searchQuery.trim() ? ` · “${searchQuery.trim()}”` : ''}</span></div>
-    {showShopBanners && <ShopBannerCarousel />}
     {catalogueState === 'loading' ? <CatalogueSkeleton /> : catalogueState === 'error' ? <ErrorState onRetry={refresh} message={catalogueError} /> : filtered.length ? <div className="product-grid">{filtered.map((product) => <ProductCard key={product.id} product={product} openProduct={openProduct} addToCart={addToCart} buyNow={buyNow} />)}</div> : <div className="verified-empty"><p>{hasCriteria ? 'No products match those choices.' : 'No matching verified products.'}</p><span>{hasCriteria ? 'Try clearing a filter or searching for another product.' : 'Product records added and verified in the admin portal appear here automatically.'}</span>{hasCriteria && <button className="text-button" type="button" onClick={() => { setSearchQuery(''); clearFilters(); }}>Clear search and filters</button>}</div>}
   </section>;
 }

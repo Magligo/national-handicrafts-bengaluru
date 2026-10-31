@@ -2029,3 +2029,11 @@ body.admin-route .mobile-bottom-navigation{display:none!important;}
   .admin-menu-trigger-chevron{width:17px;height:17px;flex:none;margin-left:auto;fill:none;stroke:var(--terracotta);stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;transition:transform .18s ease;}
   .admin-menu-trigger[aria-expanded="true"] .admin-menu-trigger-chevron{transform:rotate(180deg);}
 }
+@media(max-width:720px){
+  /* The site header already carries the brand on admin pages; keep the
+     desktop admin identity bar, but remove its duplicate mobile branding. */
+  .admin-workspace{grid-template-rows:auto minmax(0,1fr);}
+  .admin-topbar{display:none;}
+  .admin-menu-trigger-row{padding-bottom:0;}
+  .admin-content{min-height:calc(100vh - 66px);padding-top:12px;}
+}

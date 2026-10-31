@@ -26,11 +26,11 @@ export function cloudinaryConfigured() {
   return hasCloudinaryConfig();
 }
 
-export async function uploadProductImage(file) {
+async function uploadImage(file, targetFolder) {
   if (!cloudinaryConfigured()) throw cloudinaryConfigurationError();
   return new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream({
-      folder,
+      folder: targetFolder,
       resource_type: 'image',
       use_filename: false,
       unique_filename: true,
@@ -46,6 +46,26 @@ export async function uploadProductImage(file) {
     });
     stream.end(file.buffer);
   });
+}
+
+export function uploadProductImage(file) {
+  return uploadImage(file, folder);
+}
+
+export function uploadGalleryImage(file) {
+  return uploadImage(file, 'national-handicrafts/gallery');
+}
+
+export async function deleteGalleryImage(publicId) {
+  if (!cloudinaryConfigured()) throw cloudinaryConfigurationError();
+  const result = await cloudinary.uploader.destroy(publicId, { resource_type: 'image', invalidate: true });
+  if (!['ok', 'not found'].includes(result?.result)) {
+    const error = new Error('Cloudinary could not delete the gallery image.');
+    error.status = 502;
+    error.code = 'CLOUDINARY_DELETE_FAILED';
+    throw error;
+  }
+  return result;
 }
 
 export async function uploadShopBannerMedia(file) {

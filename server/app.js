@@ -10,7 +10,7 @@ import { createRepository } from './repository.js';
 import { productInput, validateOrder, customerRegistrationInput, customerProfileInput, addressInput, adminPasswordChangeInput, orderStatuses, validateCustomerPassword } from './validation.js';
 import { getConfiguredFrontendOrigins, paymentConfig, serverConfig } from './config/env.js';
 import { createRateLimit } from './middleware/rateLimit.js';
-import { uploadProductImage, uploadShopBannerMedia } from './storage/cloudinary.js';
+import { uploadProductImage, uploadShopBannerMedia, uploadGalleryImage, deleteGalleryImage as deleteStoredGalleryImage } from './storage/cloudinary.js';
 import { OAuth2Client } from 'google-auth-library';
 import { createHash, randomBytes } from 'node:crypto';
 import { sendPasswordResetEmail, emailDeliveryConfigured } from './email/resend.js';
@@ -22,12 +22,21 @@ const corsMethods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'];
 const corsHeaders = ['Content-Type', 'X-CSRF-Token', 'Idempotency-Key'];
 const storage = multer.memoryStorage();
 const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024, files: 8 }, fileFilter: (_req, file, cb) => /^image\/(jpeg|png|webp)$/.test(file.mimetype) ? cb(null, true) : cb(new Error('Only JPEG, PNG, and WebP images are allowed')) });
+const galleryUpload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024, files: 8 }, fileFilter: (_req, file, cb) => /^image\/(jpeg|png|webp)$/.test(file.mimetype) ? cb(null, true) : cb(new Error('Only JPEG, PNG, and WebP images are allowed')) });
 const bannerUpload = multer({ storage, limits: { fileSize: 50 * 1024 * 1024, files: 1 }, fileFilter: (_req, file, cb) => (/^image\/(jpeg|png|webp)$/.test(file.mimetype) || /^video\/(mp4|webm)$/.test(file.mimetype)) ? cb(null, true) : cb(new Error('Banner media must be JPEG, PNG, WebP, MP4, or WebM')) });
 function removeUploadedFiles(product) { const paths = [...new Set([product?.image_path, ...(product?.image_paths || [])].filter((value) => typeof value === 'string' && value.startsWith('/uploads/')))]; for (const publicPath of paths) { try { fs.unlinkSync(path.join(root, '..', 'public', publicPath.replace(/^\//, ''))); } catch { /* stale or already removed upload */ } } }
-function publicError(error, requestPath = '') { if (error?.code === 'LIMIT_FILE_SIZE') return requestPath.includes('/shop-banners') ? 'Banner media must be 50 MB or smaller' : 'Each image must be 5 MB or smaller'; if (error?.code === 'LIMIT_FILE_COUNT') return requestPath.includes('/shop-banners') ? 'Upload one banner media file at a time' : 'You can upload up to 8 images'; if (/Only (?:image files|JPEG, PNG, and WebP)/i.test(error?.message || '')) return 'Only JPEG, PNG, and WebP images are allowed'; if (/Banner media must be JPEG/i.test(error?.message || '')) return error.message; if (/required|must be|between|one of|valid JSON|positive whole|Insufficient stock|No valid products|configured|duplicate|price|Google sign-in|available|option|awaiting|verified|quantity/i.test(error?.message || '')) return error.message; return 'Request failed'; }
+function publicError(error, requestPath = '') { if (error?.code === 'LIMIT_FILE_SIZE') return requestPath.includes('/shop-banners') ? 'Banner media must be 50 MB or smaller' : 'Each image must be 5 MB or smaller'; if (error?.code === 'LIMIT_FILE_COUNT') return requestPath.includes('/shop-banners') ? 'Upload one banner media file at a time' : 'You can upload up to 8 images'; if (/Only (?:image files|JPEG, PNG, and WebP)/i.test(error?.message || '')) return 'Only JPEG, PNG, and WebP images are allowed'; if (/Banner media must be JPEG/i.test(error?.message || '')) return error.message; if (/required|must be|between|one of|valid JSON|positive whole|Insufficient stock|No valid products|configured|duplicate|price|Google sign-in|available|option|awaiting|verified|quantity|choose at least one image|choose a category|image titles|image descriptions|gallery image|display order|published status|image data|title for each selected image|gallery storage/i.test(error?.message || '')) return error.message; return 'Request failed'; }
 function isTransientDatabaseError(error) { const code = String(error?.code || ''); return /^(08|ECONN|ETIMEDOUT|ENOTFOUND|EHOSTUNREACH|57P01|53300)/.test(code) || /^(ConnectionTimeoutError|ConnectionError)$/.test(error?.name || '') || /query (?:read )?timeout|timeout exceeded when trying to connect|connection terminated unexpectedly/i.test(error?.message || ''); }
 function validBannerLink(value) { return !value || /^https:\/\/\S+$/i.test(value) || /^\/(?!\/)[^\s]*$/.test(value); }
 async function uploadProductImages(files, uploader) { return Promise.all(files.map(async (file) => (await uploader(file)).url)); }
+function galleryImageMatchesMime(file) {
+  const buffer = file?.buffer;
+  if (!buffer || buffer.length < 12) return false;
+  if (file.mimetype === 'image/jpeg') return buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+  if (file.mimetype === 'image/png') return buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  if (file.mimetype === 'image/webp') return buffer.toString('ascii', 0, 4) === 'RIFF' && buffer.toString('ascii', 8, 12) === 'WEBP';
+  return false;
+}
 function publicCustomer(customer) { if (!customer) return null; return { id: customer.id, email: customer.email, name: customer.name, avatar_url: customer.avatar_url || '', phone: customer.phone || '', address: customer.address || '', city: customer.city || '', state: customer.state || '', pin: customer.pin || '', created_at: customer.created_at, updated_at: customer.updated_at }; }
 export function validateGoogleIdentity(payload, clientId, now = Date.now()) {
   if (!payload || payload.aud !== clientId || !['https://accounts.google.com', 'accounts.google.com'].includes(payload.iss) || payload.email_verified !== true || !payload.sub || !payload.email || !Number.isFinite(Number(payload.exp)) || Number(payload.exp) * 1000 <= now) throw new Error('Google sign-in could not be verified');
@@ -46,7 +55,7 @@ async function verifyGoogleCredential(credential, clientId) {
   }
 }
 
-export function createApp({ repo = createRepository(), secret = serverConfig.adminSessionSecret, corsOrigin, imageUploader = uploadProductImage, bannerUploader = uploadShopBannerMedia, googleVerifier = verifyGoogleCredential, googleClientId = serverConfig.googleClientId, passwordResetMailer = null } = {}) {
+export function createApp({ repo = createRepository(), secret = serverConfig.adminSessionSecret, corsOrigin, imageUploader = uploadProductImage, bannerUploader = uploadShopBannerMedia, galleryImageUploader = uploadGalleryImage, galleryImageDeleter = deleteStoredGalleryImage, googleVerifier = verifyGoogleCredential, googleClientId = serverConfig.googleClientId, passwordResetMailer = null } = {}) {
   if (process.env.NODE_ENV === 'production' && !secret) throw new Error('ADMIN_SESSION_SECRET is required in production');
   const configuredOrigins = getConfiguredFrontendOrigins(corsOrigin);
   if (process.env.NODE_ENV === 'production' && configuredOrigins.length === 0) throw new Error('FRONTEND_ORIGINS or FRONTEND_ORIGIN is required in production');
@@ -168,6 +177,66 @@ export function createApp({ repo = createRepository(), secret = serverConfig.adm
   });
   app.get('/api/admin/dashboard', admin, async (_req, res, next) => { try { res.json({ data: await repo.dashboard() }); } catch (e) { next(e); } });
   app.get('/api/shop-banners', async (_req, res, next) => { try { res.json({ data: await repo.listShopBanners({ activeOnly: true }) }); } catch (e) { next(e); } });
+  app.get('/api/gallery', async (_req, res, next) => { try { const images = await repo.listGalleryImages({ publishedOnly: true }); res.json({ data: images.map(({ id, image_url, title, description, category, order_index, created_at }) => ({ id, image_url, title, description, category, order_index, created_at })) }); } catch (e) { next(e); } });
+  app.get('/api/admin/gallery', admin, async (_req, res, next) => { try { res.json({ data: await repo.listGalleryImages() }); } catch (e) { next(e); } });
+  app.post('/api/admin/gallery', adminMutation, galleryUpload.array('images', 8), async (req, res, next) => {
+    try {
+      const files = req.files || [];
+      if (!files.length) return res.status(400).json({ error: 'Choose at least one image to upload' });
+      let titles = [];
+      try { titles = req.body?.titles ? JSON.parse(req.body.titles) : []; } catch { return res.status(400).json({ error: 'Image titles must be valid JSON' }); }
+      if (!Array.isArray(titles) || (titles.length && titles.length !== files.length)) return res.status(400).json({ error: 'Provide one title for each selected image' });
+      const description = String(req.body?.description || '').trim();
+      const category = String(req.body?.category || 'General').trim();
+      if (description.length > 2000) return res.status(400).json({ error: 'Image descriptions must be 2,000 characters or fewer' });
+      if (!category || category.length > 80) return res.status(400).json({ error: 'Choose a category of 1 to 80 characters' });
+      if (titles.some((title) => typeof title !== 'string' || !title.trim() || title.trim().length > 160)) return res.status(400).json({ error: 'Each image title must be 1 to 160 characters' });
+      if (files.some((file) => !galleryImageMatchesMime(file))) return res.status(400).json({ error: 'Image data does not match its JPEG, PNG, or WebP file type' });
+      const existing = await repo.listGalleryImages();
+      const uploaded = [];
+      try {
+        for (const file of files) uploaded.push(await galleryImageUploader(file));
+      } catch (uploadError) {
+        await Promise.allSettled(uploaded.filter((item) => item.publicId).map((item) => galleryImageDeleter(item.publicId)));
+        throw uploadError;
+      }
+      const created = [];
+      try {
+        for (let index = 0; index < files.length; index += 1) {
+          const stored = uploaded[index];
+          if (!stored?.url || !stored.url.startsWith('https://')) throw new Error('Gallery storage did not return a secure image URL');
+          created.push(await repo.createGalleryImage({ image_url: stored.url, storage_public_id: stored.publicId || null, title: (titles[index] || path.parse(files[index].originalname).name).trim(), description, category, published: false, order_index: existing.length + index }));
+        }
+      } catch (saveError) {
+        await Promise.allSettled(created.map((image) => repo.deleteGalleryImage(image.id)));
+        await Promise.allSettled(uploaded.filter((item) => item.publicId).map((item) => galleryImageDeleter(item.publicId)));
+        throw saveError;
+      }
+      res.status(201).json({ data: created });
+    } catch (e) { next(e); }
+  });
+  app.patch('/api/admin/gallery/:id', adminMutation, async (req, res, next) => {
+    try {
+      const input = {};
+      if (req.body?.title !== undefined) { input.title = String(req.body.title).trim(); if (!input.title || input.title.length > 160) return res.status(400).json({ error: 'Image titles must be 1 to 160 characters' }); }
+      if (req.body?.description !== undefined) { input.description = String(req.body.description || '').trim(); if (input.description.length > 2000) return res.status(400).json({ error: 'Image descriptions must be 2,000 characters or fewer' }); }
+      if (req.body?.category !== undefined) { input.category = String(req.body.category).trim(); if (!input.category || input.category.length > 80) return res.status(400).json({ error: 'Choose a category of 1 to 80 characters' }); }
+      if (req.body?.published !== undefined) { if (![true, false, 'true', 'false'].includes(req.body.published)) return res.status(400).json({ error: 'Published status must be true or false' }); input.published = req.body.published === true || req.body.published === 'true'; }
+      if (req.body?.orderIndex !== undefined) { const order = Number(req.body.orderIndex); if (!Number.isInteger(order) || order < 0) return res.status(400).json({ error: 'Display order must be a non-negative whole number' }); input.order_index = order; }
+      const image = await repo.updateGalleryImage(req.params.id, input);
+      if (!image) return res.status(404).json({ error: 'Gallery image not found' });
+      res.json({ data: image });
+    } catch (e) { next(e); }
+  });
+  app.delete('/api/admin/gallery/:id', adminMutation, async (req, res, next) => {
+    try {
+      const image = await repo.getGalleryImage(req.params.id);
+      if (!image) return res.status(404).json({ error: 'Gallery image not found' });
+      if (image.storage_public_id) await galleryImageDeleter(image.storage_public_id);
+      if (!await repo.deleteGalleryImage(req.params.id)) return res.status(404).json({ error: 'Gallery image not found' });
+      res.status(204).end();
+    } catch (e) { next(e); }
+  });
   app.get('/api/admin/shop-banners', admin, async (_req, res, next) => { try { res.json({ data: await repo.listShopBanners() }); } catch (e) { next(e); } });
   app.post('/api/admin/shop-banners', adminMutation, bannerUpload.single('media'), async (req, res, next) => {
     try {

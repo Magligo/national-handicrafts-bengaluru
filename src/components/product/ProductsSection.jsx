@@ -1,10 +1,55 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { CATEGORIES } from '../../constants/catalogue.js';
+import { api } from '../../services/api.js';
 import ProductCard from './ProductCard.jsx';
 import { ErrorState } from '../common/StatusState.jsx';
 import { filterAndSortProducts } from '../../services/catalogueFilters.js';
 
 const defaultFilters = { category: '', minPrice: '', maxPrice: '', availability: 'all', sort: 'featured' };
+
+function ShopBannerCarousel() {
+  const [banners, setBanners] = useState([]);
+  const [index, setIndex] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController();
+    api('/shop-banners', { signal: controller.signal }).then((response) => {
+      setBanners(Array.isArray(response?.data) ? response.data : []);
+    }).catch(() => { if (!controller.signal.aborted) setBanners([]); });
+    return () => controller.abort();
+  }, []);
+  useEffect(() => {
+    if (banners.length < 2) return undefined;
+    const timer = window.setInterval(() => setIndex((current) => (current + 1) % banners.length), 5600);
+    return () => window.clearInterval(timer);
+  }, [banners.length]);
+  useEffect(() => {
+    document.querySelectorAll('.shop-banner-slide video').forEach((video, slideIndex) => {
+      if (slideIndex === index) video.play().catch(() => {});
+      else video.pause();
+    });
+  }, [index, banners]);
+  useEffect(() => { if (index >= banners.length) setIndex(0); }, [banners.length, index]);
+  if (!banners.length) return null;
+  const move = (step) => setIndex((current) => (current + step + banners.length) % banners.length);
+  return <section className="shop-banner" aria-label="Shop promotions" aria-roledescription={banners.length > 1 ? 'carousel' : undefined}>
+    <div className="shop-banner-track" style={{ transform: `translateX(-${index * 100}%)` }}>
+      {banners.map((banner, slideIndex) => {
+        const content = banner.media_type === 'video'
+          ? <video src={banner.media_url} muted playsInline loop autoPlay={slideIndex === index} preload={slideIndex === index ? 'metadata' : 'none'} aria-label={banner.title || 'Shop promotion'} />
+          : <img src={banner.media_url} alt={banner.title || 'Shop promotion'} loading={slideIndex === 0 ? 'eager' : 'lazy'} />;
+        return <div className="shop-banner-slide" key={banner.id} aria-hidden={slideIndex !== index}>
+          {banner.link_url ? <a className="shop-banner-media" href={banner.link_url} aria-label={banner.title || 'View promotion'} tabIndex={slideIndex === index ? 0 : -1}>{content}</a> : <div className="shop-banner-media">{content}</div>}
+          {banner.title && <div className="shop-banner-caption"><span>{banner.title}</span>{banner.link_url && <span aria-hidden="true">Explore →</span>}</div>}
+        </div>;
+      })}
+    </div>
+    {banners.length > 1 && <>
+      <button type="button" className="shop-banner-arrow previous" aria-label="Previous promotion" onClick={() => move(-1)}>‹</button>
+      <button type="button" className="shop-banner-arrow next" aria-label="Next promotion" onClick={() => move(1)}>›</button>
+      <div className="shop-banner-dots" role="group" aria-label="Choose promotion">{banners.map((banner, dotIndex) => <button key={banner.id} type="button" aria-label={`Show promotion ${dotIndex + 1}`} aria-current={dotIndex === index ? 'true' : undefined} className={dotIndex === index ? 'active' : ''} onClick={() => setIndex(dotIndex)} />)}</div>
+    </>}
+  </section>;
+}
 
 function CatalogueSkeleton() {
   return <div className="product-grid catalogue-skeleton" role="status" aria-label="Loading products">
@@ -22,15 +67,14 @@ function FilterControls({ values, onChange }) {
   </>;
 }
 
-export default function ProductsSection({ products, refresh, openProduct, addToCart, buyNow, catalogueState, catalogueError, searchQuery, setSearchQuery }) {
+export default function ProductsSection({ showShopBanners = false, products, refresh, openProduct, addToCart, buyNow, catalogueState, catalogueError, searchQuery, setSearchQuery, filterOpen, setFilterOpen }) {
   const [filters, setFilters] = useState(defaultFilters);
   const [draftFilters, setDraftFilters] = useState(defaultFilters);
-  const [filterOpen, setFilterOpen] = useState(false);
   const updateFilter = (key, value) => setFilters((current) => ({ ...current, [key]: value }));
   const updateDraftFilter = (key, value) => setDraftFilters((current) => ({ ...current, [key]: value }));
   const clearFilters = () => { setFilters(defaultFilters); setDraftFilters(defaultFilters); };
-  const openFilters = () => { setDraftFilters(filters); setFilterOpen(true); };
   const applyFilters = () => { setFilters(draftFilters); setFilterOpen(false); };
+  useEffect(() => { if (filterOpen) setDraftFilters(filters); }, [filterOpen]);
 
   const filtered = useMemo(() => {
     return filterAndSortProducts(products, { ...filters, query: searchQuery });
@@ -42,13 +86,12 @@ export default function ProductsSection({ products, refresh, openProduct, addToC
   const filterSummary = activeFilterCount ? `${activeFilterCount} filter${activeFilterCount === 1 ? '' : 's'} active` : 'All products';
 
   return <section className="section products-page">
-    <div className="page-heading"><div><p className="eyebrow">THE CATALOGUE</p><h1>Find a piece with presence.</h1></div><p>Only active, verified products appear in this customer-facing collection.</p></div>
     <div className="catalogue-toolbar" aria-label="Product filters">
       <div className="catalogue-filter-desktop"><FilterControls values={filters} onChange={updateFilter} /><button className="catalogue-clear" type="button" onClick={clearFilters} disabled={!activeFilterCount}>Clear all</button></div>
-      <button className="filter-drawer-trigger" type="button" onClick={openFilters} aria-expanded={filterOpen}>Filter &amp; Sort <span>{activeFilterCount ? `(${activeFilterCount})` : ''}</span></button>
       {filterOpen && <div className="filter-drawer" role="dialog" aria-modal="true" aria-label="Filter and sort products"><div className="filter-drawer-heading"><strong>Filter &amp; Sort</strong><button type="button" onClick={() => setFilterOpen(false)} aria-label="Close filters">×</button></div><div className="catalogue-filter-mobile"><FilterControls values={draftFilters} onChange={updateDraftFilter} /></div><div className="filter-drawer-actions"><button className="button secondary" type="button" onClick={clearFilters}>Clear all</button><button className="button primary" type="button" onClick={applyFilters}>Apply filters</button></div></div>}
     </div>
     <div className="catalogue-results-bar"><p>{catalogueState === 'loading' ? 'Loading verified products…' : catalogueState === 'error' ? 'Catalogue temporarily unavailable' : invalidRange ? 'Choose a maximum price greater than the minimum.' : `Showing ${filtered.length} product${filtered.length === 1 ? '' : 's'}`}</p><span>{filterSummary}{searchQuery.trim() ? ` · “${searchQuery.trim()}”` : ''}</span></div>
+    {showShopBanners && <ShopBannerCarousel />}
     {catalogueState === 'loading' ? <CatalogueSkeleton /> : catalogueState === 'error' ? <ErrorState onRetry={refresh} message={catalogueError} /> : filtered.length ? <div className="product-grid">{filtered.map((product) => <ProductCard key={product.id} product={product} openProduct={openProduct} addToCart={addToCart} buyNow={buyNow} />)}</div> : <div className="verified-empty"><p>{hasCriteria ? 'No products match those choices.' : 'No matching verified products.'}</p><span>{hasCriteria ? 'Try clearing a filter or searching for another product.' : 'Product records added and verified in the admin portal appear here automatically.'}</span>{hasCriteria && <button className="text-button" type="button" onClick={() => { setSearchQuery(''); clearFilters(); }}>Clear search and filters</button>}</div>}
   </section>;
 }

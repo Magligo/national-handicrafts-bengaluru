@@ -47,3 +47,27 @@ export async function uploadProductImage(file) {
     stream.end(file.buffer);
   });
 }
+
+export async function uploadShopBannerMedia(file) {
+  if (!cloudinaryConfigured()) throw cloudinaryConfigurationError();
+  const isVideo = file.mimetype === 'video/mp4' || file.mimetype === 'video/webm';
+  const resourceType = isVideo ? 'video' : 'image';
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream({
+      folder: 'national-handicrafts/shop-banners',
+      resource_type: resourceType,
+      use_filename: false,
+      unique_filename: true,
+      overwrite: false,
+    }, (error, result) => {
+      if (error || !result?.secure_url) {
+        const uploadError = new Error('Cloudinary could not store the banner media. Check the backend logs and Cloudinary availability.');
+        uploadError.status = 502;
+        uploadError.code = 'CLOUDINARY_UPLOAD_FAILED';
+        return reject(uploadError);
+      }
+      resolve({ url: result.secure_url, publicId: result.public_id, mediaType: isVideo ? 'video' : 'image' });
+    });
+    stream.end(file.buffer);
+  });
+}

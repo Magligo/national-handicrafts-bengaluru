@@ -32,6 +32,33 @@ test('rejects admin API access without a session', async () => {
   assert.equal(response.status, 401);
 });
 
+test('shop banners accept image and video uploads, stay admin-managed, and expose only active items publicly', async () => {
+  const repo = new MemoryRepository({ adminUsers: [{ id: 'a1', email: 'admin@test.local', password_hash: await bcrypt.hash('correct horse battery staple', 10), role: 'admin' }] });
+  const { app } = createApp({ repo, secret: 'test-secret', bannerUploader: async (file) => ({ url: `https://media.test/${file.originalname}`, mediaType: file.mimetype.startsWith('video/') ? 'video' : 'image' }) });
+  const auth = await signIn(app);
+  const create = (name, filename, mimetype) => adminRequest(app, auth, 'post', '/api/admin/shop-banners')
+    .set('Idempotency-Key', name)
+    .field('title', name)
+    .field('linkUrl', '/shop')
+    .attach('media', Buffer.from('banner media'), { filename, contentType: mimetype });
+  const image = await create('Festival edit', 'banner.webp', 'image/webp');
+  const replay = await create('Festival edit', 'banner.webp', 'image/webp');
+  const video = await create('New arrivals', 'banner.mp4', 'video/mp4');
+  assert.equal(image.status, 201);
+  assert.equal(image.body.data.media_type, 'image');
+  assert.equal(replay.status, 200);
+  assert.equal(replay.body.duplicate, true);
+  assert.equal(video.body.data.media_type, 'video');
+  await adminRequest(app, auth, 'patch', `/api/admin/shop-banners/${image.body.data.id}`).send({ active: false });
+  const publicList = await request(app).get('/api/shop-banners');
+  const adminList = await adminRequest(app, auth, 'get', '/api/admin/shop-banners');
+  assert.deepEqual(publicList.body.data.map((banner) => banner.title), ['New arrivals']);
+  assert.equal(adminList.body.data.length, 2);
+  const removed = await adminRequest(app, auth, 'delete', `/api/admin/shop-banners/${video.body.data.id}`);
+  assert.equal(removed.status, 204);
+  assert.equal((await adminRequest(app, auth, 'get', '/api/admin/shop-banners')).body.data.length, 1);
+});
+
 test('keeps customer and admin sessions isolated', async () => {
   const passwordHash = await bcrypt.hash('customer-password', 10);
   const repo = new MemoryRepository({

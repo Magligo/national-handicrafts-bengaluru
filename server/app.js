@@ -10,7 +10,7 @@ import { createRepository } from './repository.js';
 import { productInput, validateOrder, customerRegistrationInput, customerProfileInput, addressInput, adminPasswordChangeInput, orderStatuses, validateCustomerPassword } from './validation.js';
 import { getConfiguredFrontendOrigins, paymentConfig, serverConfig } from './config/env.js';
 import { createRateLimit } from './middleware/rateLimit.js';
-import { uploadProductImage } from './storage/cloudinary.js';
+import { uploadProductImage, uploadShopBannerMedia } from './storage/cloudinary.js';
 import { OAuth2Client } from 'google-auth-library';
 import { createHash, randomBytes } from 'node:crypto';
 import { sendPasswordResetEmail, emailDeliveryConfigured } from './email/resend.js';
@@ -22,8 +22,10 @@ const corsMethods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'];
 const corsHeaders = ['Content-Type', 'X-CSRF-Token', 'Idempotency-Key'];
 const storage = multer.memoryStorage();
 const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024, files: 8 }, fileFilter: (_req, file, cb) => /^image\/(jpeg|png|webp)$/.test(file.mimetype) ? cb(null, true) : cb(new Error('Only JPEG, PNG, and WebP images are allowed')) });
+const bannerUpload = multer({ storage, limits: { fileSize: 50 * 1024 * 1024, files: 1 }, fileFilter: (_req, file, cb) => (/^image\/(jpeg|png|webp)$/.test(file.mimetype) || /^video\/(mp4|webm)$/.test(file.mimetype)) ? cb(null, true) : cb(new Error('Banner media must be JPEG, PNG, WebP, MP4, or WebM')) });
 function removeUploadedFiles(product) { const paths = [...new Set([product?.image_path, ...(product?.image_paths || [])].filter((value) => typeof value === 'string' && value.startsWith('/uploads/')))]; for (const publicPath of paths) { try { fs.unlinkSync(path.join(root, '..', 'public', publicPath.replace(/^\//, ''))); } catch { /* stale or already removed upload */ } } }
-function publicError(error) { if (error?.code === 'LIMIT_FILE_SIZE') return 'Each image must be 5 MB or smaller'; if (error?.code === 'LIMIT_FILE_COUNT') return 'You can upload up to 8 images'; if (/Only (?:image files|JPEG, PNG, and WebP)/i.test(error?.message || '')) return 'Only JPEG, PNG, and WebP images are allowed'; if (/required|must be|between|one of|valid JSON|positive whole|Insufficient stock|No valid products|configured|duplicate|price|Google sign-in|available|option|awaiting|verified|quantity/i.test(error?.message || '')) return error.message; return 'Request failed'; }
+function publicError(error, requestPath = '') { if (error?.code === 'LIMIT_FILE_SIZE') return requestPath.includes('/shop-banners') ? 'Banner media must be 50 MB or smaller' : 'Each image must be 5 MB or smaller'; if (error?.code === 'LIMIT_FILE_COUNT') return requestPath.includes('/shop-banners') ? 'Upload one banner media file at a time' : 'You can upload up to 8 images'; if (/Only (?:image files|JPEG, PNG, and WebP)/i.test(error?.message || '')) return 'Only JPEG, PNG, and WebP images are allowed'; if (/Banner media must be JPEG/i.test(error?.message || '')) return error.message; if (/required|must be|between|one of|valid JSON|positive whole|Insufficient stock|No valid products|configured|duplicate|price|Google sign-in|available|option|awaiting|verified|quantity/i.test(error?.message || '')) return error.message; return 'Request failed'; }
+function validBannerLink(value) { return !value || /^https:\/\/\S+$/i.test(value) || /^\/(?!\/)[^\s]*$/.test(value); }
 async function uploadProductImages(files, uploader) { return Promise.all(files.map(async (file) => (await uploader(file)).url)); }
 function publicCustomer(customer) { if (!customer) return null; return { id: customer.id, email: customer.email, name: customer.name, avatar_url: customer.avatar_url || '', phone: customer.phone || '', address: customer.address || '', city: customer.city || '', state: customer.state || '', pin: customer.pin || '', created_at: customer.created_at, updated_at: customer.updated_at }; }
 export function validateGoogleIdentity(payload, clientId, now = Date.now()) {
@@ -43,7 +45,7 @@ async function verifyGoogleCredential(credential, clientId) {
   }
 }
 
-export function createApp({ repo = createRepository(), secret = serverConfig.adminSessionSecret, corsOrigin, imageUploader = uploadProductImage, googleVerifier = verifyGoogleCredential, googleClientId = serverConfig.googleClientId, passwordResetMailer = null } = {}) {
+export function createApp({ repo = createRepository(), secret = serverConfig.adminSessionSecret, corsOrigin, imageUploader = uploadProductImage, bannerUploader = uploadShopBannerMedia, googleVerifier = verifyGoogleCredential, googleClientId = serverConfig.googleClientId, passwordResetMailer = null } = {}) {
   if (process.env.NODE_ENV === 'production' && !secret) throw new Error('ADMIN_SESSION_SECRET is required in production');
   const configuredOrigins = getConfiguredFrontendOrigins(corsOrigin);
   if (process.env.NODE_ENV === 'production' && configuredOrigins.length === 0) throw new Error('FRONTEND_ORIGINS or FRONTEND_ORIGIN is required in production');
@@ -152,6 +154,48 @@ export function createApp({ repo = createRepository(), secret = serverConfig.adm
     } catch (error) { next(error); }
   });
   app.get('/api/admin/dashboard', admin, async (_req, res, next) => { try { res.json({ data: await repo.dashboard() }); } catch (e) { next(e); } });
+  app.get('/api/shop-banners', async (_req, res, next) => { try { res.json({ data: await repo.listShopBanners({ activeOnly: true }) }); } catch (e) { next(e); } });
+  app.get('/api/admin/shop-banners', admin, async (_req, res, next) => { try { res.json({ data: await repo.listShopBanners() }); } catch (e) { next(e); } });
+  app.post('/api/admin/shop-banners', adminMutation, bannerUpload.single('media'), async (req, res, next) => {
+    try {
+      const requestKey = String(req.get('Idempotency-Key') || '').trim();
+      if (requestKey.length > 120) return res.status(400).json({ error: 'Idempotency key must be 120 characters or fewer' });
+      const creationKey = requestKey ? `${req.admin.id}:${requestKey}` : null;
+      if (creationKey) {
+        const existing = await repo.getShopBannerByCreationKey(creationKey);
+        if (existing) return res.status(200).json({ data: existing, duplicate: true });
+      }
+      if (!req.file) return res.status(400).json({ error: 'Choose an image or video for the banner' });
+      if (req.file.mimetype.startsWith('image/') && req.file.size > 5 * 1024 * 1024) return res.status(413).json({ error: 'Banner images must be 5 MB or smaller' });
+      const title = String(req.body?.title || '').trim().slice(0, 120);
+      const linkUrl = String(req.body?.linkUrl || '').trim();
+      if (!validBannerLink(linkUrl)) return res.status(400).json({ error: 'Banner link must use HTTPS or a site-relative path' });
+      const uploaded = await bannerUploader(req.file);
+      const input = { title, link_url: linkUrl || null, media_url: uploaded.url, media_type: uploaded.mediaType || (req.file.mimetype.startsWith('video/') ? 'video' : 'image'), active: req.body?.active !== 'false', order_index: Number(req.body?.orderIndex) || 0 };
+      if (creationKey) {
+        const result = await repo.createShopBannerIdempotently(input, creationKey);
+        return res.status(result.duplicate ? 200 : 201).json({ data: result.banner, ...(result.duplicate ? { duplicate: true } : {}) });
+      }
+      res.status(201).json({ data: await repo.createShopBanner(input) });
+    } catch (e) { next(e); }
+  });
+  app.patch('/api/admin/shop-banners/:id', adminMutation, async (req, res, next) => {
+    try {
+      const input = {};
+      if (req.body?.title !== undefined) input.title = String(req.body.title).trim().slice(0, 120);
+      if (req.body?.linkUrl !== undefined) {
+        const linkUrl = String(req.body.linkUrl || '').trim();
+        if (!validBannerLink(linkUrl)) return res.status(400).json({ error: 'Banner link must use HTTPS or a site-relative path' });
+        input.link_url = linkUrl || null;
+      }
+      if (req.body?.active !== undefined) input.active = req.body.active === true || req.body.active === 'true';
+      if (req.body?.orderIndex !== undefined) input.order_index = Math.max(0, Number(req.body.orderIndex) || 0);
+      const banner = await repo.updateShopBanner(req.params.id, input);
+      if (!banner) return res.status(404).json({ error: 'Shop banner not found' });
+      res.json({ data: banner });
+    } catch (e) { next(e); }
+  });
+  app.delete('/api/admin/shop-banners/:id', adminMutation, async (req, res, next) => { try { if (!await repo.deleteShopBanner(req.params.id)) return res.status(404).json({ error: 'Shop banner not found' }); res.status(204).end(); } catch (e) { next(e); } });
   app.get('/api/admin/products', admin, async (req, res, next) => { try { res.json({ data: await repo.listProducts({ admin: true, q: req.query.q || '', category: req.query.category || '' }) }); } catch (e) { next(e); } });
   app.post('/api/admin/products', adminMutation, upload.array('images', 8), async (req, res, next) => {
     try {
@@ -184,6 +228,6 @@ export function createApp({ repo = createRepository(), secret = serverConfig.adm
   app.post('/api/admin/orders/:id/payment/collect-cod', adminMutation, async (req, res, next) => { try { const order = await repo.markCodCollected(req.params.id, req.admin.email); if (!order) return res.status(409).json({ error: 'COD payment is already collected or this is not a COD order' }); res.json({ data: order }); } catch (e) { next(e); } });
   app.post('/api/admin/orders/:id/cancellation/:decision', adminMutation, async (req, res, next) => { try { if (!['approved','rejected'].includes(req.params.decision)) return res.status(400).json({ error: 'Decision must be approved or rejected' }); const order = await repo.decideCancellation(req.params.id, req.params.decision); if (!order) return res.status(409).json({ error: 'No pending cancellation request exists' }); res.json({ data: order }); } catch (e) { next(e); } });
   app.post('/api/admin/orders/:id/payment/verify', adminMutation, async (req, res, next) => { try { if (!req.body?.evidenceNote || String(req.body.evidenceNote).trim().length < 3) return res.status(400).json({ error: 'Evidence note is required for manual verification' }); const order = await repo.verifyPayment(req.params.id, { payment_status: 'verified', payment_verified_at: new Date().toISOString(), payment_verified_by: req.admin.email, payment_evidence_note: String(req.body.evidenceNote).trim().slice(0, 500) }); if (!order) return res.status(404).json({ error: 'Order not found' }); res.json({ data: order }); } catch (e) { next(e); } });
-  app.use((err, _req, res, _next) => { if (err?.status === 503 || err?.status === 502) return res.status(err.status).json({ error: err.message }); console.error(err); if (err?.code === '23505' && err?.constraint === 'products_sku_key') return res.status(409).json({ error: 'A product with this SKU already exists. Choose a unique product code.' }); res.status(err.status || 400).json({ error: publicError(err) }); });
+  app.use((err, req, res, _next) => { if (err?.status === 503 || err?.status === 502) return res.status(err.status).json({ error: err.message }); console.error(err); if (err?.code === '23505' && err?.constraint === 'products_sku_key') return res.status(409).json({ error: 'A product with this SKU already exists. Choose a unique product code.' }); res.status(err.status || 400).json({ error: publicError(err, req.path) }); });
   return { app, repo };
 }

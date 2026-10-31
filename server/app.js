@@ -25,6 +25,7 @@ const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024, files: 8 }
 const bannerUpload = multer({ storage, limits: { fileSize: 50 * 1024 * 1024, files: 1 }, fileFilter: (_req, file, cb) => (/^image\/(jpeg|png|webp)$/.test(file.mimetype) || /^video\/(mp4|webm)$/.test(file.mimetype)) ? cb(null, true) : cb(new Error('Banner media must be JPEG, PNG, WebP, MP4, or WebM')) });
 function removeUploadedFiles(product) { const paths = [...new Set([product?.image_path, ...(product?.image_paths || [])].filter((value) => typeof value === 'string' && value.startsWith('/uploads/')))]; for (const publicPath of paths) { try { fs.unlinkSync(path.join(root, '..', 'public', publicPath.replace(/^\//, ''))); } catch { /* stale or already removed upload */ } } }
 function publicError(error, requestPath = '') { if (error?.code === 'LIMIT_FILE_SIZE') return requestPath.includes('/shop-banners') ? 'Banner media must be 50 MB or smaller' : 'Each image must be 5 MB or smaller'; if (error?.code === 'LIMIT_FILE_COUNT') return requestPath.includes('/shop-banners') ? 'Upload one banner media file at a time' : 'You can upload up to 8 images'; if (/Only (?:image files|JPEG, PNG, and WebP)/i.test(error?.message || '')) return 'Only JPEG, PNG, and WebP images are allowed'; if (/Banner media must be JPEG/i.test(error?.message || '')) return error.message; if (/required|must be|between|one of|valid JSON|positive whole|Insufficient stock|No valid products|configured|duplicate|price|Google sign-in|available|option|awaiting|verified|quantity/i.test(error?.message || '')) return error.message; return 'Request failed'; }
+function isTransientDatabaseError(error) { const code = String(error?.code || ''); return /^(08|ECONN|ETIMEDOUT|ENOTFOUND|EHOSTUNREACH|57P01|53300)/.test(code) || /^(ConnectionTimeoutError|ConnectionError)$/.test(error?.name || '') || /query (?:read )?timeout|timeout exceeded when trying to connect|connection terminated unexpectedly/i.test(error?.message || ''); }
 function validBannerLink(value) { return !value || /^https:\/\/\S+$/i.test(value) || /^\/(?!\/)[^\s]*$/.test(value); }
 async function uploadProductImages(files, uploader) { return Promise.all(files.map(async (file) => (await uploader(file)).url)); }
 function publicCustomer(customer) { if (!customer) return null; return { id: customer.id, email: customer.email, name: customer.name, avatar_url: customer.avatar_url || '', phone: customer.phone || '', address: customer.address || '', city: customer.city || '', state: customer.state || '', pin: customer.pin || '', created_at: customer.created_at, updated_at: customer.updated_at }; }
@@ -88,7 +89,19 @@ export function createApp({ repo = createRepository(), secret = serverConfig.adm
     });
     return { ...product, price_inr: variants.length ? null : product.price_inr, stock: variants.length ? null : product.stock, variants, specifications: publicSpecs };
   };
-  app.get('/api/products', async (req, res, next) => { try { res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=300'); res.json({ data: (await repo.listProducts({ q: req.query.q || '', category: req.query.category || '' })).map(publicProduct) }); } catch (e) { next(e); } });
+  app.get('/api/products', async (req, res, next) => {
+    const startedAt = Date.now();
+    try {
+      res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
+      const products = (await repo.listProducts({ q: req.query.q || '', category: req.query.category || '' })).map(publicProduct);
+      const durationMs = Date.now() - startedAt;
+      if (durationMs >= 3000) console.info('[catalogue] Product list completed slowly', { durationMs, count: products.length });
+      res.json({ data: products });
+    } catch (error) {
+      console.warn('[catalogue] Product list failed', { durationMs: Date.now() - startedAt, code: error.code || 'application_error', name: error.name || 'Error' });
+      next(error);
+    }
+  });
   app.get('/api/products/:id', async (req, res, next) => { try { const p = await repo.getProduct(req.params.id); if (!p || !p.active || p.verification_status !== 'verified') return res.status(404).json({ error: 'Product not found' }); res.json({ data: publicProduct(p) }); } catch (e) { next(e); } });
   app.post('/api/auth/login', adminLoginRateLimit, async (req, res, next) => { try { const user = await authenticate(req.body?.email || '', req.body?.password || '', repo); if (!user || user.role !== 'admin') return res.status(401).json({ error: 'Invalid admin credentials' }); setSession(res, user, sessionSecret); res.json({ data: user }); } catch (e) { next(e); } });
   const admin = requireAdmin(sessionSecret, repo);
@@ -228,6 +241,12 @@ export function createApp({ repo = createRepository(), secret = serverConfig.adm
   app.post('/api/admin/orders/:id/payment/collect-cod', adminMutation, async (req, res, next) => { try { const order = await repo.markCodCollected(req.params.id, req.admin.email); if (!order) return res.status(409).json({ error: 'COD payment is already collected or this is not a COD order' }); res.json({ data: order }); } catch (e) { next(e); } });
   app.post('/api/admin/orders/:id/cancellation/:decision', adminMutation, async (req, res, next) => { try { if (!['approved','rejected'].includes(req.params.decision)) return res.status(400).json({ error: 'Decision must be approved or rejected' }); const order = await repo.decideCancellation(req.params.id, req.params.decision); if (!order) return res.status(409).json({ error: 'No pending cancellation request exists' }); res.json({ data: order }); } catch (e) { next(e); } });
   app.post('/api/admin/orders/:id/payment/verify', adminMutation, async (req, res, next) => { try { if (!req.body?.evidenceNote || String(req.body.evidenceNote).trim().length < 3) return res.status(400).json({ error: 'Evidence note is required for manual verification' }); const order = await repo.verifyPayment(req.params.id, { payment_status: 'verified', payment_verified_at: new Date().toISOString(), payment_verified_by: req.admin.email, payment_evidence_note: String(req.body.evidenceNote).trim().slice(0, 500) }); if (!order) return res.status(404).json({ error: 'Order not found' }); res.json({ data: order }); } catch (e) { next(e); } });
-  app.use((err, req, res, _next) => { if (err?.status === 503 || err?.status === 502) return res.status(err.status).json({ error: err.message }); console.error(err); if (err?.code === '23505' && err?.constraint === 'products_sku_key') return res.status(409).json({ error: 'A product with this SKU already exists. Choose a unique product code.' }); res.status(err.status || 400).json({ error: publicError(err, req.path) }); });
+  app.use((err, req, res, _next) => {
+    if (isTransientDatabaseError(err)) return res.status(503).json({ error: 'The service is temporarily unavailable. Please try again.' });
+    if (err?.status === 503 || err?.status === 502) return res.status(err.status).json({ error: err.message });
+    if ((err.status || 400) >= 500) console.error('[api] Request failed', { method: req.method, path: req.path, status: err.status || 500, code: err.code || 'application_error', name: err.name || 'Error' });
+    if (err?.code === '23505' && err?.constraint === 'products_sku_key') return res.status(409).json({ error: 'A product with this SKU already exists. Choose a unique product code.' });
+    res.status(err.status || 400).json({ error: publicError(err, req.path) });
+  });
   return { app, repo };
 }

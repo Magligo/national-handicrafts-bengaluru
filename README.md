@@ -40,9 +40,13 @@ The storefront keeps `main.jsx` and the protected admin portal as compatibility-
 
 The frontend calls `VITE_API_URL` with `credentials: 'include'`. By default this is `http://localhost:4000/api`. The backend enables CORS only for `FRONTEND_ORIGIN` and serves uploaded product images from `/uploads`.
 
+In production, the storefront uses the same-origin `/api` path so customer and administrator cookies remain first-party. `vercel.json` rewrites that path to the Render API service. Keep the rewrite destination aligned with the deployed backend URL; `VITE_API_URL` is for local development and is intentionally not used by production builds.
+
 ## Environment configuration
 
 Copy the safe template:
+
+For the deployed backend, configure `DATABASE_URL` with the Neon pooled PostgreSQL connection string (TLS enabled), `ADMIN_SESSION_SECRET`, and `CUSTOMER_SESSION_SECRET`. Set `FRONTEND_ORIGIN` or `FRONTEND_ORIGINS` to the deployed storefront origin(s) for direct cross-origin requests and preview deployments. On Vercel, keep the `/api` rewrite in `vercel.json` pointed at the Render API URL. Do not put database or session secrets in `VITE_*` variables. Optional pool overrides are `PG_POOL_MAX`, `PG_CONNECT_TIMEOUT_MS`, and `PG_QUERY_TIMEOUT_MS`; defaults are 5 connections and 20 seconds for connection/query timeouts.
 
 ```powershell
 Copy-Item .env.example .env

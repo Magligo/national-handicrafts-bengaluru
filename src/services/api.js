@@ -14,8 +14,13 @@ export async function api(path, options = {}) {
   const timeoutId = setTimeout(() => controller.abort(new DOMException('Request timed out', 'TimeoutError')), timeout);
   callerSignal?.addEventListener('abort', abortFromCaller, { once: true });
   let response;
+  let body = null;
   try {
     response = await fetch(`${API}${path}`, { credentials: 'include', ...requestOptions, signal: controller.signal });
+    try { body = response.status === 204 ? null : await response.json(); } catch (error) {
+      if (controller.signal.aborted) throw error;
+      body = null;
+    }
   } catch (error) {
     if (controller.signal.aborted && !callerSignal?.aborted) {
       throw new Error(`The ${service} service is taking too long to respond. Please try again.`);
@@ -26,12 +31,6 @@ export async function api(path, options = {}) {
     callerSignal?.removeEventListener('abort', abortFromCaller);
   }
 
-  let body = null;
-  try {
-    body = response.status === 204 ? null : await response.json();
-  } catch {
-    body = null;
-  }
   if (!response.ok) {
     const error = new Error(body?.error || 'The request could not be completed.');
     error.status = response.status;

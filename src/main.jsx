@@ -8,6 +8,7 @@ import CatalogueProductCard from './components/product/ProductCard.jsx';
 import ScrollToTop from './ScrollToTop.jsx';
 import { CATEGORIES as categories, CATEGORY_IMAGES as categoryImages } from './constants/catalogue.js';
 import { api, authenticateAccount, formatPrice, imageUrl } from './services/api.js';
+import { loadProducts } from './services/catalogue.js';
 import { animateProductToCart } from './services/cartAnimation.js';
 import { resolveProfileDestination } from './services/profileSession.js';
 import { productPurchaseState } from '../shared/productAvailability.js';
@@ -55,6 +56,7 @@ function App() {
   const [products, setProducts] = useState([]);
   const [catalogueState, setCatalogueState] = useState('loading');
   const [catalogueError, setCatalogueError] = useState('');
+  const catalogueRequestRef = useRef(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [catalogueFiltersOpen, setCatalogueFiltersOpen] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
@@ -71,7 +73,27 @@ function App() {
     addCartItem(product);
     if (!exceedsStock) animateProductToCart(trigger);
   };
-  const refresh = () => { setCatalogueState('loading'); setCatalogueError(''); return api('/products').then((r) => { const nextProducts = Array.isArray(r?.data) ? r.data : []; setProducts(nextProducts); reconcile(nextProducts); setCatalogueState('ready'); return nextProducts; }).catch((error) => { setCatalogueState('error'); setCatalogueError(error.message); setProducts([]); }); };
+  const refresh = () => {
+    if (catalogueRequestRef.current) return catalogueRequestRef.current;
+    setCatalogueState('loading');
+    setCatalogueError('');
+    const request = loadProducts()
+      .then((response) => {
+        const nextProducts = Array.isArray(response?.data) ? response.data : [];
+        setProducts(nextProducts);
+        reconcile(nextProducts);
+        setCatalogueState('ready');
+        return nextProducts;
+      })
+      .catch(() => {
+        setCatalogueState('error');
+        setCatalogueError('We could not load the collection just now. Please check your connection and try again.');
+        setProducts([]);
+      })
+      .finally(() => { catalogueRequestRef.current = null; });
+    catalogueRequestRef.current = request;
+    return request;
+  };
   useEffect(() => { refresh(); const onPopState = () => { const nextParams = new URLSearchParams(location.search); const nextPage = location.pathname === '/profile' ? 'profile' : location.pathname === '/admin' || nextParams.get('admin') === '1' ? 'admin' : nextParams.get('product') ? 'detail' : ['password-reset', 'password-recovery'].includes(nextParams.get('page')) ? 'password-recovery' : nextParams.get('page') || (['about', 'products'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'home'); setSelectedProductId(nextParams.get('product')); setPage(nextPage); setNavigationKey((key) => key + 1); }; addEventListener('popstate', onPopState); return () => removeEventListener('popstate', onPopState); }, []);
   // The splash is brand polish, not an API gate: data may still be loading underneath it.
   useEffect(() => { const timer = setTimeout(() => setShowSplash(false), 700); return () => clearTimeout(timer); }, []);

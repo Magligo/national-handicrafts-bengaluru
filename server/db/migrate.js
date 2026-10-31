@@ -17,10 +17,13 @@ export async function runMigrations(connectionString = process.env.DATABASE_URL)
     connectionString,
     max: 1,
     idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 10000,
+    connectionTimeoutMillis: Number(process.env.PG_CONNECT_TIMEOUT_MS || 20000),
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 10000,
   });
-  const client = await pool.connect();
+  let client;
   try {
+    client = await pool.connect();
     const encoding = await client.query('SHOW server_encoding');
     assertUtf8DatabaseEncoding(encoding.rows[0]?.server_encoding);
     await client.query(`CREATE TABLE IF NOT EXISTS schema_migrations (id TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
@@ -42,7 +45,7 @@ export async function runMigrations(connectionString = process.env.DATABASE_URL)
       }
     }
   } finally {
-    client.release();
+    client?.release();
     await pool.end();
   }
 }

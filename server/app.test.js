@@ -604,6 +604,16 @@ test('empty in-memory catalogue is a successful empty response', async () => {
   assert.deepEqual(products.body, { data: [] });
 });
 
+test('transient database failures return a retryable service error without exposing connection details', async () => {
+  const repo = new MemoryRepository();
+  repo.listProducts = async () => { throw Object.assign(new Error('private database endpoint details'), { code: 'ETIMEDOUT' }); };
+  const { app } = createApp({ repo, secret: 'test-secret' });
+  const response = await request(app).get('/api/products');
+  assert.equal(response.status, 503);
+  assert.equal(response.body.error, 'The service is temporarily unavailable. Please try again.');
+  assert.doesNotMatch(JSON.stringify(response.body), /private database endpoint/);
+});
+
 test('allows the configured development origin while keeping other origins out', async () => {
   const { app } = createApp({ repo: new MemoryRepository(), secret: 'test-secret', corsOrigin: 'http://localhost:5173' });
   const allowed = await request(app).get('/api/products').set('Origin', 'https://national-handicrafts-bengaluru.vercel.app');

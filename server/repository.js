@@ -143,11 +143,14 @@ export class PostgresRepository {
       connectionString,
       max: Number(process.env.PG_POOL_MAX || 5),
       idleTimeoutMillis: 30000,
-      // Bound both connection acquisition and a query so an unavailable Neon
-      // instance releases a Render worker instead of tying it up indefinitely.
-      connectionTimeoutMillis: Number(process.env.PG_CONNECT_TIMEOUT_MS || 8000),
-      query_timeout: Number(process.env.PG_QUERY_TIMEOUT_MS || 8000),
+      // Neon can need several seconds to wake after inactivity. Keep acquisition
+      // bounded, but allow a cold connection and first catalogue query to finish.
+      connectionTimeoutMillis: Number(process.env.PG_CONNECT_TIMEOUT_MS || 20000),
+      query_timeout: Number(process.env.PG_QUERY_TIMEOUT_MS || 20000),
+      keepAlive: true,
+      keepAliveInitialDelayMillis: 10000,
     });
+    this.pool.on('error', (error) => console.warn('[database] Idle pooled client failed', { code: error.code || 'unknown', name: error.name || 'Error' }));
   }
   async query(text, values) { return this.pool.query(text, values); }
   async listShopBanners({ activeOnly = false } = {}) { const result = await this.query(`SELECT * FROM shop_banners ${activeOnly ? 'WHERE active = TRUE' : ''} ORDER BY order_index, created_at, id`); return result.rows; }

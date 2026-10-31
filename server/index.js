@@ -16,7 +16,7 @@ if (process.env.USE_IN_MEMORY_DB !== 'true') {
   try {
     await runMigrations();
   } catch (error) {
-    console.error(`Database initialization failed: ${error.message}`);
+    console.error('Database initialization failed', { code: error.code || 'database_error', name: error.name || 'Error' });
     process.exit(1);
   }
 }

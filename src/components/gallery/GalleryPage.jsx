@@ -1,59 +1,53 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../../services/api.js';
 
+const filters = [['all', 'All'], ['photo', 'Photos'], ['video', 'Videos'], ['link', 'Links']];
+function itemType(item) { return item.media_type || 'photo'; }
+function youtubeEmbed(url) {
+  try { const parsed = new URL(url); let id = ''; if (parsed.hostname === 'youtu.be') id = parsed.pathname.slice(1); else if (['youtube.com', 'www.youtube.com', 'm.youtube.com'].includes(parsed.hostname)) id = parsed.searchParams.get('v') || parsed.pathname.match(/^\/(?:embed|shorts)\/([^/?]+)/)?.[1] || ''; return /^[\w-]{11}$/.test(id) ? `https://www.youtube-nocookie.com/embed/${id}` : ''; } catch { return ''; }
+}
+
 export default function GalleryPage() {
-  const [images, setImages] = useState([]);
+  const [items, setItems] = useState([]);
   const [state, setState] = useState('loading');
-  const [activeIndex, setActiveIndex] = useState(-1);
-
-  const loadGallery = useCallback(async () => {
-    setState('loading');
-    try {
-      const result = await api('/gallery');
-      setImages(Array.isArray(result?.data) ? result.data : []);
-      setState('ready');
-    } catch {
-      setState('error');
-    }
-  }, []);
-
+  const [filter, setFilter] = useState('all');
+  const [activeId, setActiveId] = useState('');
+  const loadGallery = useCallback(async () => { setState('loading'); try { const result = await api('/gallery'); setItems(Array.isArray(result?.data) ? result.data : []); setState('ready'); } catch { setState('error'); } }, []);
   useEffect(() => { loadGallery(); }, [loadGallery]);
+  const visibleItems = useMemo(() => items.filter((item) => filter === 'all' || itemType(item) === filter), [items, filter]);
+  const active = visibleItems.find((item) => item.id === activeId) || items.find((item) => item.id === activeId);
+  const photoItems = visibleItems.filter((item) => itemType(item) === 'photo');
   useEffect(() => {
-    if (activeIndex < 0) return undefined;
-    const oldOverflow = document.body.style.overflow;
-    const onKeyDown = (event) => {
-      if (event.key === 'Escape') setActiveIndex(-1);
-      if (event.key === 'ArrowRight') setActiveIndex((index) => (index + 1) % images.length);
-      if (event.key === 'ArrowLeft') setActiveIndex((index) => (index - 1 + images.length) % images.length);
-    };
-    document.body.style.overflow = 'hidden';
-    document.addEventListener('keydown', onKeyDown);
-    return () => { document.body.style.overflow = oldOverflow; document.removeEventListener('keydown', onKeyDown); };
-  }, [activeIndex, images.length]);
-
-  const move = (step) => setActiveIndex((index) => (index + step + images.length) % images.length);
-  const activeImage = activeIndex >= 0 ? images[activeIndex] : null;
-
+    if (!active) return undefined;
+    const priorOverflow = document.body.style.overflow;
+    const onKeyDown = (event) => { if (event.key === 'Escape') setActiveId(''); };
+    document.body.style.overflow = 'hidden'; document.addEventListener('keydown', onKeyDown);
+    return () => { document.body.style.overflow = priorOverflow; document.removeEventListener('keydown', onKeyDown); };
+  }, [active]);
+  const movePhoto = (direction) => { const index = photoItems.findIndex((item) => item.id === active?.id); if (photoItems.length) setActiveId(photoItems[(index + direction + photoItems.length) % photoItems.length].id); };
+  const close = () => setActiveId('');
+  const closeOnBackdrop = (event) => { if (event.target === event.currentTarget) close(); };
+  const renderCard = (item) => {
+    const type = itemType(item); const thumb = item.thumbnail_url || item.image_url || item.media_url;
+    const copy = <span className="gallery-card-copy"><span className="gallery-card-category">{item.category}</span><strong>{item.title}</strong>{item.description && <span className="gallery-card-description">{item.description}</span>}</span>;
+    const media = <span className="gallery-card-image">{thumb ? <img src={thumb} alt={item.title} loading="lazy" /> : <span className="gallery-card-placeholder" aria-hidden="true">{type === 'link' ? '↗' : '▶'}</span>}{type === 'video' && <span className="gallery-media-badge play" aria-label="Video">▶</span>}{type === 'link' && <span className="gallery-media-badge link" aria-label="External link">↗</span>}</span>;
+    if (type === 'link') {
+      const embedUrl = youtubeEmbed(item.external_url || '');
+      return <article className="gallery-card gallery-link-card" key={item.id}>{embedUrl ? <button type="button" className="gallery-card-trigger" onClick={() => setActiveId(item.id)} aria-label={`Play ${item.title}`}>{media}{copy}</button> : <a className="gallery-card-trigger" href={item.external_url} target="_blank" rel="noopener noreferrer" aria-label={`Open ${item.title} in a new tab`}>{media}{copy}<span className="gallery-external-action">Open link ↗</span></a>}</article>;
+    }
+    return <button className="gallery-card" key={item.id} type="button" onClick={() => setActiveId(item.id)} aria-label={`${type === 'video' ? 'Play' : 'View'} ${item.title}`}>{media}{copy}</button>;
+  };
   return <section className="section gallery-page" aria-labelledby="gallery-title">
-    <header className="gallery-heading">
-      <p className="eyebrow">A CLOSER LOOK</p>
-      <h1 id="gallery-title">The gallery.</h1>
-      <p className="lede">Objects, materials, and details from the National Handicrafts collection.</p>
-    </header>
-    {state === 'loading' ? <div className="gallery-message" role="status">Gathering the collection…</div> : null}
-    {state === 'error' ? <div className="gallery-empty" role="alert"><p>The gallery could not be loaded just now.</p><button type="button" className="button secondary" onClick={loadGallery}>Try again</button></div> : null}
-    {state === 'ready' && images.length === 0 ? <div className="gallery-empty"><span className="gallery-empty-mark" aria-hidden="true">✳</span><h2>New stories are taking shape.</h2><p>Published photographs from the collection will appear here.</p></div> : null}
-    {state === 'ready' && images.length > 0 ? <div className="gallery-grid">{images.map((image, index) => <button className="gallery-card" key={image.id} type="button" onClick={() => setActiveIndex(index)} aria-label={`View ${image.title}`}>
-      <span className="gallery-card-image"><img src={image.image_url} alt={image.title} loading="lazy" /></span>
-      <span className="gallery-card-copy"><span className="gallery-card-category">{image.category}</span><strong>{image.title}</strong>{image.description && <span className="gallery-card-description">{image.description}</span>}</span>
-    </button>)}</div> : null}
-    {activeImage && <div className="gallery-lightbox" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setActiveIndex(-1); }}>
-      <section className="gallery-lightbox-dialog" role="dialog" aria-modal="true" aria-label={activeImage.title}>
-        <button type="button" className="gallery-lightbox-close" aria-label="Close image viewer" onClick={() => setActiveIndex(-1)}>×</button>
-        {images.length > 1 && <button type="button" className="gallery-lightbox-arrow previous" aria-label="Previous image" onClick={() => move(-1)}>‹</button>}
-        <figure><img src={activeImage.image_url} alt={activeImage.title} /><figcaption><span>{activeImage.category}</span><strong>{activeImage.title}</strong>{activeImage.description && <p>{activeImage.description}</p>}<small>{activeIndex + 1} / {images.length}</small></figcaption></figure>
-        {images.length > 1 && <button type="button" className="gallery-lightbox-arrow next" aria-label="Next image" onClick={() => move(1)}>›</button>}
-      </section>
-    </div>}
+    <header className="gallery-heading"><p className="eyebrow">A CLOSER LOOK</p><h1 id="gallery-title">The gallery.</h1><p className="lede">Objects, materials, and details from the National Handicrafts collection.</p></header>
+    <div className="gallery-filter-tabs" role="tablist" aria-label="Filter gallery media">{filters.map(([value, label]) => <button key={value} type="button" role="tab" aria-selected={filter === value} className={filter === value ? 'active' : ''} onClick={() => { setFilter(value); close(); }}>{label}</button>)}</div>
+    {state === 'loading' && <div className="gallery-message" role="status">Gathering the collection…</div>}
+    {state === 'error' && <div className="gallery-empty" role="alert"><p>The gallery could not be loaded just now.</p><button type="button" className="button secondary" onClick={loadGallery}>Try again</button></div>}
+    {state === 'ready' && (!items.length || !visibleItems.length) && <div className="gallery-empty"><span className="gallery-empty-mark" aria-hidden="true">✳</span><h2>{items.length ? 'Nothing here just yet.' : 'New stories are taking shape.'}</h2><p>{items.length ? 'Choose another media filter to explore the collection.' : 'Published photos, videos and links from the collection will appear here.'}</p></div>}
+    {state === 'ready' && visibleItems.length > 0 && <div className="gallery-grid">{visibleItems.map(renderCard)}</div>}
+    {active && <div className="gallery-lightbox" role="presentation" onMouseDown={closeOnBackdrop}><section className="gallery-lightbox-dialog" role="dialog" aria-modal="true" aria-label={active.title}><button type="button" className="gallery-lightbox-close" aria-label="Close media viewer" onClick={close}>×</button>
+      {itemType(active) === 'photo' && <><figure><img src={active.media_url || active.image_url} alt={active.title} /><figcaption><span>{active.category}</span><strong>{active.title}</strong>{active.description && <p>{active.description}</p>}</figcaption></figure>{photoItems.length > 1 && <><button type="button" className="gallery-lightbox-arrow previous" aria-label="Previous photo" onClick={() => movePhoto(-1)}>‹</button><button type="button" className="gallery-lightbox-arrow next" aria-label="Next photo" onClick={() => movePhoto(1)}>›</button></>}</>}
+      {itemType(active) === 'video' && <div className="gallery-media-viewer"><video src={active.media_url || active.image_url} controls autoPlay playsInline poster={active.thumbnail_url || active.image_url} /><div><span>{active.category}</span><strong>{active.title}</strong>{active.description && <p>{active.description}</p>}</div></div>}
+      {itemType(active) === 'link' && youtubeEmbed(active.external_url || '') && <div className="gallery-media-viewer"><iframe src={youtubeEmbed(active.external_url)} title={active.title} allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerPolicy="strict-origin-when-cross-origin" allowFullScreen /><div><span>{active.category}</span><strong>{active.title}</strong>{active.description && <p>{active.description}</p>}<a href={active.external_url} target="_blank" rel="noopener noreferrer">Open on YouTube ↗</a></div></div>}
+    </section></div>}
   </section>;
 }

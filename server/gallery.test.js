@@ -5,10 +5,10 @@ import bcrypt from 'bcryptjs';
 import { createApp } from './app.js';
 import { MemoryRepository } from './repository.js';
 
-async function setup({ galleryImageUploader, galleryImageDeleter } = {}) {
+async function setup({ galleryImageUploader, galleryMediaUploader, galleryImageDeleter } = {}) {
   const repo = new MemoryRepository({ adminUsers: [{ id: 'gallery-admin', email: 'admin@test.local', password_hash: await bcrypt.hash('correct horse battery staple', 10), role: 'admin' }] });
   const deleted = [];
-  const { app } = createApp({ repo, secret: 'gallery-test-secret', galleryImageUploader: galleryImageUploader || (async (file) => ({ url: `https://media.test/${file.originalname}`, publicId: `gallery/${file.originalname}` })), galleryImageDeleter: galleryImageDeleter || (async (publicId) => { deleted.push(publicId); }) });
+  const { app } = createApp({ repo, secret: 'gallery-test-secret', galleryImageUploader: galleryImageUploader || (async (file) => ({ url: `https://media.test/${file.originalname}`, publicId: `gallery/${file.originalname}` })), galleryMediaUploader: galleryMediaUploader || (async (file) => ({ url: `https://media.test/${file.originalname}`, publicId: `gallery/${file.originalname}`, thumbnailUrl: 'https://media.test/video-thumb.jpg' })), galleryImageDeleter: galleryImageDeleter || (async (publicId) => { deleted.push(publicId); }) });
   const login = await request(app).post('/api/auth/login').send({ email: 'admin@test.local', password: 'correct horse battery staple' });
   const cookie = login.headers['set-cookie'];
   const csrf = await request(app).get('/api/auth/csrf').set('Cookie', cookie);
@@ -82,4 +82,26 @@ test('gallery upload failure cleans up earlier Cloudinary uploads and creates no
   assert.match(response.body.error, /Cloudinary could not store/);
   assert.equal(repo.galleryImages.length, 0);
   assert.deepEqual(deleted, ['gallery/first.png']);
+});
+
+test('gallery accepts persistent video media and validated HTTPS external links', async () => {
+  const { app, auth, repo } = await setup({ galleryImageUploader: async (file) => ({ url: `https://media.test/${file.originalname}`, publicId: `gallery/${file.originalname}` }), galleryImageDeleter: async () => {} });
+  const video = Buffer.alloc(16); video.write('ftyp', 4, 'ascii');
+  const videoResult = await admin(app, auth, 'post', '/api/admin/gallery')
+    .field('mediaType', 'video').field('title', 'Workshop film').field('description', 'A short film').field('category', 'Process')
+    .attach('media', video, { filename: 'workshop.mp4', contentType: 'video/mp4' });
+  assert.equal(videoResult.status, 201);
+  assert.equal(videoResult.body.data[0].media_type, 'video');
+  assert.equal(videoResult.body.data[0].media_url, 'https://media.test/workshop.mp4');
+  assert.equal((await admin(app, auth, 'patch', `/api/admin/gallery/${videoResult.body.data[0].id}`).send({ published: true })).status, 200);
+  const badLink = await admin(app, auth, 'post', '/api/admin/gallery').field('mediaType', 'link').field('title', 'Unsafe').field('externalUrl', 'javascript:alert(1)');
+  assert.equal(badLink.status, 400);
+  const link = await admin(app, auth, 'post', '/api/admin/gallery').field('mediaType', 'link').field('title', 'Our video').field('externalUrl', 'https://youtu.be/abcdefghijk').field('category', 'Process');
+  assert.equal(link.status, 201);
+  assert.equal(link.body.data[0].media_type, 'link');
+  assert.equal(link.body.data[0].external_url, 'https://youtu.be/abcdefghijk');
+  assert.equal((await admin(app, auth, 'patch', `/api/admin/gallery/${link.body.data[0].id}`).send({ published: true })).status, 200);
+  const publicItems = (await request(app).get('/api/gallery')).body.data;
+  assert.deepEqual(publicItems.map((item) => item.media_type), ['video', 'link']);
+  assert.equal(repo.galleryImages.length, 2);
 });

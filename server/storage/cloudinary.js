@@ -56,6 +56,21 @@ export function uploadGalleryImage(file) {
   return uploadImage(file, 'national-handicrafts/gallery');
 }
 
+export async function uploadGalleryMedia(file) {
+  if (file.mimetype.startsWith('image/')) return uploadGalleryImage(file);
+  if (!cloudinaryConfigured()) throw cloudinaryConfigurationError();
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream({ folder: 'national-handicrafts/gallery', resource_type: 'video', use_filename: false, unique_filename: true, overwrite: false }, (error, result) => {
+      if (error || !result?.secure_url) {
+        const uploadError = new Error('Cloudinary could not store the gallery video. Check the backend logs and Cloudinary availability.');
+        uploadError.status = 502; uploadError.code = 'CLOUDINARY_UPLOAD_FAILED'; return reject(uploadError);
+      }
+      resolve({ url: result.secure_url, publicId: result.public_id, thumbnailUrl: result.secure_url.replace(/\.[^./?]+(?:\?.*)?$/, '.jpg') });
+    });
+    stream.end(file.buffer);
+  });
+}
+
 export async function deleteGalleryImage(publicId) {
   if (!cloudinaryConfigured()) throw cloudinaryConfigurationError();
   const result = await cloudinary.uploader.destroy(publicId, { resource_type: 'image', invalidate: true });
@@ -65,6 +80,14 @@ export async function deleteGalleryImage(publicId) {
     error.code = 'CLOUDINARY_DELETE_FAILED';
     throw error;
   }
+  return result;
+}
+
+export async function deleteGalleryMedia(publicId, mediaType = 'photo') {
+  if (mediaType !== 'video') return deleteGalleryImage(publicId);
+  if (!cloudinaryConfigured()) throw cloudinaryConfigurationError();
+  const result = await cloudinary.uploader.destroy(publicId, { resource_type: 'video', invalidate: true });
+  if (!['ok', 'not found'].includes(result?.result)) { const error = new Error('Cloudinary could not delete the gallery video.'); error.status = 502; error.code = 'CLOUDINARY_DELETE_FAILED'; throw error; }
   return result;
 }
 

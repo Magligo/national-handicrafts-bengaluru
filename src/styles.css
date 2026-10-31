@@ -2029,6 +2029,40 @@ body.admin-route .mobile-bottom-navigation{display:none!important;}
   .admin-menu-trigger-chevron{width:17px;height:17px;flex:none;margin-left:auto;fill:none;stroke:var(--terracotta);stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;transition:transform .18s ease;}
   .admin-menu-trigger[aria-expanded="true"] .admin-menu-trigger-chevron{transform:rotate(180deg);}
 }
+/* Mixed-media gallery */
+.gallery-filter-tabs{display:flex;justify-content:center;flex-wrap:wrap;gap:.45rem;margin:-.6rem auto 2rem;}
+.gallery-filter-tabs button{min-height:40px;padding:.55rem 1rem;border:1px solid rgba(61,42,30,.16);border-radius:999px;background:transparent;color:var(--muted);font:inherit;font-size:.8rem;cursor:pointer;}
+.gallery-filter-tabs button.active{border-color:var(--ink);background:var(--ink);color:var(--paper);}
+.gallery-card-trigger{display:grid;width:100%;padding:0;border:0;background:transparent;color:inherit;text-align:left;text-decoration:none;cursor:pointer;}
+.gallery-card-image{position:relative;}
+.gallery-card-placeholder{display:grid;width:100%;height:100%;place-items:center;background:linear-gradient(145deg,#e9ddcb,#c8a27b);color:#75442c;font-size:2rem;}
+.gallery-media-badge{position:absolute;right:.65rem;bottom:.65rem;display:grid;width:38px;height:38px;place-items:center;border:1px solid rgba(255,255,255,.7);border-radius:50%;background:rgba(48,33,24,.78);color:#fffaf2;font-size:.9rem;}
+.gallery-media-badge.link{font-size:1.2rem;}
+.gallery-external-action{padding:.15rem .1rem;color:var(--terracotta);font-size:.78rem;font-weight:650;}
+.gallery-media-viewer{display:grid;justify-items:center;gap:1rem;width:min(100%,1000px);max-height:100%;}
+.gallery-media-viewer video,.gallery-media-viewer iframe{display:block;width:100%;max-height:75vh;aspect-ratio:16/9;border:0;background:#120e0c;object-fit:contain;}
+.gallery-media-viewer>div{display:grid;justify-items:center;gap:.35rem;color:#fffaf2;text-align:center;}
+.gallery-media-viewer>div>span{color:#dfad77;font-size:.68rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;}
+.gallery-media-viewer>div>strong{font-family:var(--display);font-size:1.35rem;font-weight:500;}
+.gallery-media-viewer>div>p{max-width:40rem;margin:0;color:rgba(255,250,242,.78);}
+.gallery-media-viewer>div>a{margin-top:.25rem;color:#f2c18c;}
+.gallery-type-selector{display:flex;flex-wrap:wrap;gap:.55rem;margin:0;padding:0;border:0;}
+.gallery-type-selector legend{width:100%;margin-bottom:.5rem;font-size:.8rem;font-weight:650;}
+.gallery-type-selector label{display:flex;align-items:center;gap:.45rem;min-height:42px;padding:.55rem .8rem;border:1px solid var(--line);background:var(--paper);font-size:.82rem;cursor:pointer;}
+.gallery-type-selector label.selected{border-color:var(--terracotta);background:#fff8ef;color:#854b2e;}
+.gallery-type-selector input{accent-color:var(--terracotta);}
+.gallery-upload-single-field{display:grid;gap:.35rem;min-width:0;font-size:.8rem;font-weight:650;}
+.gallery-upload-single-field input{box-sizing:border-box;width:100%;min-width:0;padding:.65rem .7rem;border:1px solid var(--line);background:var(--paper);color:var(--ink);font:inherit;font-size:.86rem;}
+.gallery-preview-card video{display:block;width:100%;aspect-ratio:4/3;background:#1c1714;object-fit:contain;}
+.gallery-preview-card small{color:var(--muted);font-size:.7rem;overflow-wrap:anywhere;}
+.gallery-admin-preview{position:relative;width:124px;height:90px;}
+.gallery-admin-preview .gallery-admin-thumb{width:100%;height:100%;}
+.gallery-admin-preview>span:last-child{position:absolute;right:.25rem;bottom:.25rem;padding:.15rem .3rem;background:rgba(48,33,24,.82);color:#fff;font-size:.58rem;text-transform:uppercase;}
+.gallery-admin-no-thumb{display:grid;width:100%;height:100%;place-items:center;background:#e9ddcb;color:#75442c;font-size:1.6rem;}
+.gallery-admin-card{grid-template-columns:124px minmax(0,1fr) auto;}
+@media(max-width:850px){.gallery-admin-preview{width:90px;height:76px;}}
+@media(max-width:700px){.gallery-filter-tabs{justify-content:flex-start;margin:-.4rem 0 1.5rem;}.gallery-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:1.35rem .8rem;}.gallery-card-trigger .gallery-card-copy{padding:.6rem .1rem 0;}.gallery-media-viewer video,.gallery-media-viewer iframe{max-height:68vh;}.gallery-admin-preview{width:72px;height:72px;}}
+@media(max-width:560px){.gallery-type-selector{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));}.gallery-type-selector label{justify-content:center;min-width:0;padding:.5rem .3rem;font-size:.72rem;}.gallery-admin-preview{width:72px;height:72px;}}
 @media(max-width:720px){
   /* The site header already carries the brand on admin pages; keep the
      desktop admin identity bar, but remove its duplicate mobile branding. */

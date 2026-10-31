@@ -1,33 +1,35 @@
 import { v2 as cloudinary } from 'cloudinary';
+import { createReadStream } from 'node:fs';
 
 const folder = 'national-handicrafts/products';
+function pipeFile(file, destination, reject) { const source = createReadStream(file.path); source.once('error', reject); source.pipe(destination); }
 
-export function cloudinaryConfigurationError() {
-  const error = new Error('Cloudinary image storage is not configured. Set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET in the backend .env for local development or in the Render backend environment for production.');
+const cloudinaryKeys = ['CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET'];
+
+export function cloudinaryConfigurationStatus(env = process.env) {
+  const missing = cloudinaryKeys.filter((key) => !String(env[key] || '').trim());
+  return { configured: missing.length === 0, missing };
+}
+
+export function cloudinaryConfigurationError(missing = cloudinaryKeys) {
+  const error = new Error(`Cloudinary media storage is not configured. Add ${missing.join(', ')} to the backend .env for local development or the backend hosting environment for production.`);
   error.status = 503;
   error.code = 'CLOUDINARY_CONFIG_MISSING';
   return error;
 }
 
-function hasCloudinaryConfig() {
-  return Boolean(process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET);
-}
-
-if (hasCloudinaryConfig()) {
-  cloudinary.config({
-    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-    api_key: process.env.CLOUDINARY_API_KEY,
-    api_secret: process.env.CLOUDINARY_API_SECRET,
-    secure: true,
-  });
-}
-
 export function cloudinaryConfigured() {
-  return hasCloudinaryConfig();
+  return cloudinaryConfigurationStatus().configured;
+}
+
+function configureCloudinary() {
+  const status = cloudinaryConfigurationStatus();
+  if (!status.configured) throw cloudinaryConfigurationError(status.missing);
+  cloudinary.config({ cloud_name: process.env.CLOUDINARY_CLOUD_NAME.trim(), api_key: process.env.CLOUDINARY_API_KEY.trim(), api_secret: process.env.CLOUDINARY_API_SECRET.trim(), secure: true });
 }
 
 async function uploadImage(file, targetFolder) {
-  if (!cloudinaryConfigured()) throw cloudinaryConfigurationError();
+  configureCloudinary();
   return new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream({
       folder: targetFolder,
@@ -44,7 +46,8 @@ async function uploadImage(file, targetFolder) {
       }
       resolve({ url: result.secure_url, publicId: result.public_id });
     });
-    stream.end(file.buffer);
+    if (file.path) pipeFile(file, stream, reject);
+    else stream.end(file.buffer);
   });
 }
 
@@ -58,7 +61,7 @@ export function uploadGalleryImage(file) {
 
 export async function uploadGalleryMedia(file) {
   if (file.mimetype.startsWith('image/')) return uploadGalleryImage(file);
-  if (!cloudinaryConfigured()) throw cloudinaryConfigurationError();
+  configureCloudinary();
   return new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream({ folder: 'national-handicrafts/gallery', resource_type: 'video', use_filename: false, unique_filename: true, overwrite: false }, (error, result) => {
       if (error || !result?.secure_url) {
@@ -67,12 +70,13 @@ export async function uploadGalleryMedia(file) {
       }
       resolve({ url: result.secure_url, publicId: result.public_id, thumbnailUrl: result.secure_url.replace(/\.[^./?]+(?:\?.*)?$/, '.jpg') });
     });
-    stream.end(file.buffer);
+    if (file.path) pipeFile(file, stream, reject);
+    else stream.end(file.buffer);
   });
 }
 
 export async function deleteGalleryImage(publicId) {
-  if (!cloudinaryConfigured()) throw cloudinaryConfigurationError();
+  configureCloudinary();
   const result = await cloudinary.uploader.destroy(publicId, { resource_type: 'image', invalidate: true });
   if (!['ok', 'not found'].includes(result?.result)) {
     const error = new Error('Cloudinary could not delete the gallery image.');
@@ -85,14 +89,28 @@ export async function deleteGalleryImage(publicId) {
 
 export async function deleteGalleryMedia(publicId, mediaType = 'photo') {
   if (mediaType !== 'video') return deleteGalleryImage(publicId);
-  if (!cloudinaryConfigured()) throw cloudinaryConfigurationError();
+  configureCloudinary();
   const result = await cloudinary.uploader.destroy(publicId, { resource_type: 'video', invalidate: true });
   if (!['ok', 'not found'].includes(result?.result)) { const error = new Error('Cloudinary could not delete the gallery video.'); error.status = 502; error.code = 'CLOUDINARY_DELETE_FAILED'; throw error; }
   return result;
 }
 
+export async function deleteCloudinaryMedia(publicId, mediaType = 'image') {
+  if (!publicId) return null;
+  configureCloudinary();
+  const resourceType = mediaType === 'video' ? 'video' : 'image';
+  const result = await cloudinary.uploader.destroy(publicId, { resource_type: resourceType, invalidate: true });
+  if (!['ok', 'not found'].includes(result?.result)) {
+    const error = new Error('Cloudinary could not delete the stored media.');
+    error.status = 502;
+    error.code = 'CLOUDINARY_DELETE_FAILED';
+    throw error;
+  }
+  return result;
+}
+
 export async function uploadShopBannerMedia(file) {
-  if (!cloudinaryConfigured()) throw cloudinaryConfigurationError();
+  configureCloudinary();
   const isVideo = file.mimetype === 'video/mp4' || file.mimetype === 'video/webm';
   const resourceType = isVideo ? 'video' : 'image';
   return new Promise((resolve, reject) => {
@@ -111,6 +129,7 @@ export async function uploadShopBannerMedia(file) {
       }
       resolve({ url: result.secure_url, publicId: result.public_id, mediaType: isVideo ? 'video' : 'image' });
     });
-    stream.end(file.buffer);
+    if (file.path) pipeFile(file, stream, reject);
+    else stream.end(file.buffer);
   });
 }

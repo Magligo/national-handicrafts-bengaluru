@@ -2063,6 +2063,9 @@ body.admin-route .mobile-bottom-navigation{display:none!important;}
 @media(max-width:850px){.gallery-admin-preview{width:90px;height:76px;}}
 @media(max-width:700px){.gallery-filter-tabs{justify-content:flex-start;margin:-.4rem 0 1.5rem;}.gallery-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:1.35rem .8rem;}.gallery-card-trigger .gallery-card-copy{padding:.6rem .1rem 0;}.gallery-media-viewer video,.gallery-media-viewer iframe{max-height:68vh;}.gallery-admin-preview{width:72px;height:72px;}}
 @media(max-width:560px){.gallery-type-selector{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));}.gallery-type-selector label{justify-content:center;min-width:0;padding:.5rem .3rem;font-size:.72rem;}.gallery-admin-preview{width:72px;height:72px;}}
+/* Keep gallery admin rows within the mobile card width. */
+@media(max-width:850px){.gallery-admin-card{grid-template-columns:90px minmax(0,1fr);}.gallery-admin-preview{width:90px;height:76px;}}
+@media(max-width:560px){.gallery-admin-card{grid-template-columns:72px minmax(0,1fr);gap:.65rem;padding:.65rem;}.gallery-admin-preview{width:72px;height:72px;}}
 @media(max-width:720px){
   /* The site header already carries the brand on admin pages; keep the
      desktop admin identity bar, but remove its duplicate mobile branding. */

@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS products (
   availability TEXT NOT NULL DEFAULT 'enquiry' CHECK (availability IN ('available','out_of_stock','made_to_order','enquiry')),
   image_path TEXT,
   image_paths JSONB NOT NULL DEFAULT '[]',
+  image_public_ids JSONB NOT NULL DEFAULT '[]',
   source_catalogue TEXT,
   source_page INTEGER,
   verification_status TEXT NOT NULL DEFAULT 'pending' CHECK (verification_status IN ('pending','verified','rejected')),

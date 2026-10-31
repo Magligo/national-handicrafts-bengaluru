@@ -4,13 +4,14 @@ import multer from 'multer';
 import bcrypt from 'bcryptjs';
 import path from 'node:path';
 import fs from 'node:fs';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { authenticate, authenticateCustomer, clearSession, clearCustomerSession, getCsrfToken, getCustomerCsrfToken, setSession, setCustomerSession, requireAdmin, requireCustomer, optionalCustomer } from './auth.js';
 import { createRepository } from './repository.js';
 import { productInput, validateOrder, customerRegistrationInput, customerProfileInput, addressInput, adminPasswordChangeInput, orderStatuses, validateCustomerPassword } from './validation.js';
 import { getConfiguredFrontendOrigins, paymentConfig, serverConfig } from './config/env.js';
 import { createRateLimit } from './middleware/rateLimit.js';
-import { uploadProductImage, uploadShopBannerMedia, uploadGalleryImage, uploadGalleryMedia, deleteGalleryMedia as deleteStoredGalleryMedia } from './storage/cloudinary.js';
+import { uploadProductImage, uploadShopBannerMedia, uploadGalleryImage, uploadGalleryMedia, deleteGalleryMedia as deleteStoredGalleryMedia, deleteCloudinaryMedia } from './storage/cloudinary.js';
 import { OAuth2Client } from 'google-auth-library';
 import { createHash, randomBytes } from 'node:crypto';
 import { sendPasswordResetEmail, emailDeliveryConfigured } from './email/resend.js';
@@ -22,15 +23,18 @@ const corsMethods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'];
 const corsHeaders = ['Content-Type', 'X-CSRF-Token', 'Idempotency-Key'];
 const storage = multer.memoryStorage();
 const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024, files: 8 }, fileFilter: (_req, file, cb) => /^image\/(jpeg|png|webp)$/.test(file.mimetype) ? cb(null, true) : cb(new Error('Only JPEG, PNG, and WebP images are allowed')) });
-const galleryUpload = multer({ storage, limits: { fileSize: 100 * 1024 * 1024, files: 9 }, fileFilter: (_req, file, cb) => (/^image\/(jpeg|png|webp)$/.test(file.mimetype) || /^video\/(mp4|webm)$/.test(file.mimetype)) ? cb(null, true) : cb(new Error('Gallery media must be JPEG, PNG, WebP, MP4, or WebM')) });
+const galleryStorage = multer.diskStorage({ destination: os.tmpdir(), filename: (_req, file, cb) => cb(null, `nh-gallery-${randomBytes(16).toString('hex')}${path.extname(file.originalname).toLowerCase()}`) });
+const galleryUpload = multer({ storage: galleryStorage, limits: { fileSize: 100 * 1024 * 1024, files: 9 }, fileFilter: (_req, file, cb) => (/^image\/(jpeg|png|webp)$/.test(file.mimetype) || /^video\/(mp4|webm)$/.test(file.mimetype)) ? cb(null, true) : cb(new Error('Gallery media must be JPEG, PNG, WebP, MP4, or WebM')) });
 const bannerUpload = multer({ storage, limits: { fileSize: 50 * 1024 * 1024, files: 1 }, fileFilter: (_req, file, cb) => (/^image\/(jpeg|png|webp)$/.test(file.mimetype) || /^video\/(mp4|webm)$/.test(file.mimetype)) ? cb(null, true) : cb(new Error('Banner media must be JPEG, PNG, WebP, MP4, or WebM')) });
 function removeUploadedFiles(product) { const paths = [...new Set([product?.image_path, ...(product?.image_paths || [])].filter((value) => typeof value === 'string' && value.startsWith('/uploads/')))]; for (const publicPath of paths) { try { fs.unlinkSync(path.join(root, '..', 'public', publicPath.replace(/^\//, ''))); } catch { /* stale or already removed upload */ } } }
 function publicError(error, requestPath = '') { if (error?.code === 'LIMIT_FILE_SIZE') return requestPath.includes('/shop-banners') ? 'Banner media must be 50 MB or smaller' : requestPath.includes('/gallery') ? 'Gallery videos must be 100 MB or smaller and photos or thumbnails 5 MB or smaller' : 'Each image must be 5 MB or smaller'; if (error?.code === 'LIMIT_FILE_COUNT') return requestPath.includes('/shop-banners') ? 'Upload one banner media file at a time' : 'You can upload up to 8 gallery photos'; if (/Only (?:image files|JPEG, PNG, and WebP)/i.test(error?.message || '')) return 'Only JPEG, PNG, and WebP images are allowed'; if (/Gallery media must be|Banner media must be JPEG/i.test(error?.message || '')) return error.message; if (/required|must be|between|one of|valid JSON|positive whole|Insufficient stock|No valid products|configured|duplicate|price|Google sign-in|available|option|awaiting|verified|quantity|choose at least one image|choose a category|image titles|image descriptions|gallery image|display order|published status|image data|title for each selected image|gallery storage|external URL|video (?:file|data)|Photo files/i.test(error?.message || '')) return error.message; return 'Request failed'; }
 function isTransientDatabaseError(error) { const code = String(error?.code || ''); return /^(08|ECONN|ETIMEDOUT|ENOTFOUND|EHOSTUNREACH|57P01|53300)/.test(code) || /^(ConnectionTimeoutError|ConnectionError)$/.test(error?.name || '') || /query (?:read )?timeout|timeout exceeded when trying to connect|connection terminated unexpectedly/i.test(error?.message || ''); }
 function validBannerLink(value) { return !value || /^https:\/\/\S+$/i.test(value) || /^\/(?!\/)[^\s]*$/.test(value); }
-async function uploadProductImages(files, uploader) { return Promise.all(files.map(async (file) => (await uploader(file)).url)); }
+async function uploadProductImages(files, uploader, onUploaded = () => {}) { return Promise.all(files.map(async (file) => { const result = await uploader(file); onUploaded(result); if (!result?.url || (!result.url.startsWith('https://') && !result.url.startsWith('/uploads/') && !result.url.startsWith('test-upload://'))) throw new Error('Product storage did not return a secure media URL'); return result; })); }
 function galleryImageMatchesMime(file) {
-  const buffer = file?.buffer;
+  if (Number(file?.size) < 12) return false;
+  let buffer = file?.buffer;
+  if (!buffer && file?.path) { const fd = fs.openSync(file.path, 'r'); try { buffer = Buffer.alloc(12); fs.readSync(fd, buffer, 0, 12, 0); } finally { fs.closeSync(fd); } }
   if (!buffer || buffer.length < 12) return false;
   const ext = path.extname(file.originalname || '').toLowerCase();
   if (file.mimetype === 'image/jpeg') return ['.jpg', '.jpeg'].includes(ext) && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
@@ -38,7 +42,7 @@ function galleryImageMatchesMime(file) {
   if (file.mimetype === 'image/webp') return ext === '.webp' && buffer.toString('ascii', 0, 4) === 'RIFF' && buffer.toString('ascii', 8, 12) === 'WEBP';
   return false;
 }
-function galleryVideoMatchesMime(file) { const buffer = file?.buffer; const ext = path.extname(file?.originalname || '').toLowerCase(); if (!buffer || buffer.length < 12) return false; if (file.mimetype === 'video/mp4') return ext === '.mp4' && buffer.toString('ascii', 4, 8) === 'ftyp'; if (file.mimetype === 'video/webm') return ext === '.webm' && buffer.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3])); return false; }
+function galleryVideoMatchesMime(file) { if (Number(file?.size) < 12) return false; let buffer = file?.buffer; if (!buffer && file?.path) { const fd = fs.openSync(file.path, 'r'); try { buffer = Buffer.alloc(12); fs.readSync(fd, buffer, 0, 12, 0); } finally { fs.closeSync(fd); } } const ext = path.extname(file?.originalname || '').toLowerCase(); if (!buffer || buffer.length < 12) return false; if (file.mimetype === 'video/mp4') return ext === '.mp4' && buffer.toString('ascii', 4, 8) === 'ftyp'; if (file.mimetype === 'video/webm') return ext === '.webm' && buffer.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3])); return false; }
 function validGalleryExternalUrl(value) { try { const url = new URL(value); return url.protocol === 'https:' && Boolean(url.hostname) && !url.username && !url.password; } catch { return false; } }
 function publicCustomer(customer) { if (!customer) return null; return { id: customer.id, email: customer.email, name: customer.name, avatar_url: customer.avatar_url || '', phone: customer.phone || '', address: customer.address || '', city: customer.city || '', state: customer.state || '', pin: customer.pin || '', created_at: customer.created_at, updated_at: customer.updated_at }; }
 export function validateGoogleIdentity(payload, clientId, now = Date.now()) {
@@ -58,13 +62,14 @@ async function verifyGoogleCredential(credential, clientId) {
   }
 }
 
-export function createApp({ repo = createRepository(), secret = serverConfig.adminSessionSecret, corsOrigin, imageUploader = uploadProductImage, bannerUploader = uploadShopBannerMedia, galleryImageUploader = uploadGalleryImage, galleryMediaUploader = uploadGalleryMedia, galleryImageDeleter = deleteStoredGalleryMedia, googleVerifier = verifyGoogleCredential, googleClientId = serverConfig.googleClientId, passwordResetMailer = null } = {}) {
+export function createApp({ repo = createRepository(), secret = serverConfig.adminSessionSecret, corsOrigin, imageUploader = uploadProductImage, bannerUploader = uploadShopBannerMedia, galleryImageUploader = uploadGalleryImage, galleryMediaUploader = uploadGalleryMedia, galleryImageDeleter = deleteStoredGalleryMedia, mediaDeleter = deleteCloudinaryMedia, googleVerifier = verifyGoogleCredential, googleClientId = serverConfig.googleClientId, passwordResetMailer = null } = {}) {
   if (process.env.NODE_ENV === 'production' && !secret) throw new Error('ADMIN_SESSION_SECRET is required in production');
   const configuredOrigins = getConfiguredFrontendOrigins(corsOrigin);
   if (process.env.NODE_ENV === 'production' && configuredOrigins.length === 0) throw new Error('FRONTEND_ORIGINS or FRONTEND_ORIGIN is required in production');
   const sessionSecret = secret || 'local-only-change-me';
   const customerSessionSecret = process.env.CUSTOMER_SESSION_SECRET || sessionSecret;
   const app = express();
+  const cleanupCloudinaryAsset = async (publicId, url, mediaType = 'image', exclude = {}) => { if (!publicId) return; if (await repo.isCloudinaryAssetReferenced?.(publicId, url, exclude)) return; try { await mediaDeleter(publicId, mediaType); } catch (error) { console.error('Cloudinary cleanup failed', { mediaType, code: error?.code || 'UNKNOWN' }); } };
   const adminLoginRateLimit = createRateLimit({ message: 'Too many failed admin login attempts. Try again later.' });
   const customerLoginRateLimit = createRateLimit({ message: 'Too many failed account login attempts. Try again later.' });
   const passwordResetRateLimit = createRateLimit({ max: 5, countSuccessful: true, message: 'Too many password reset requests. Try again later.' });
@@ -236,7 +241,7 @@ export function createApp({ repo = createRepository(), secret = serverConfig.adm
         throw saveError;
       }
       res.status(201).json({ data: created });
-    } catch (e) { next(e); }
+    } catch (e) { next(e); } finally { const files = [...(req.files?.images || []), ...(req.files?.media || []), ...(req.files?.thumbnail || [])]; for (const file of files) if (file.path) { try { fs.unlinkSync(file.path); } catch (error) { if (error?.code !== 'ENOENT') console.error('Gallery temp file cleanup failed', { code: error?.code || 'UNKNOWN' }); } } }
   });
   app.patch('/api/admin/gallery/:id', adminMutation, async (req, res, next) => {
     try {
@@ -257,14 +262,17 @@ export function createApp({ repo = createRepository(), secret = serverConfig.adm
     try {
       const image = await repo.getGalleryImage(req.params.id);
       if (!image) return res.status(404).json({ error: 'Gallery image not found' });
-      if (image.storage_public_id) await galleryImageDeleter(image.storage_public_id, image.media_type === 'video' ? 'video' : 'photo');
-      if (image.thumbnail_storage_public_id) await galleryImageDeleter(image.thumbnail_storage_public_id, 'photo');
       if (!await repo.deleteGalleryImage(req.params.id)) return res.status(404).json({ error: 'Gallery image not found' });
+      for (const [publicId, url, type] of [[image.storage_public_id, image.media_url || image.image_url, image.media_type === 'video' ? 'video' : 'photo'], [image.thumbnail_storage_public_id, image.thumbnail_url, 'photo']]) {
+        if (!publicId || await repo.isCloudinaryAssetReferenced?.(publicId, url, { id: image.id })) continue;
+        try { await galleryImageDeleter(publicId, type); } catch (error) { console.error('Gallery media cleanup failed', { mediaType: type, code: error?.code || 'UNKNOWN' }); }
+      }
       res.status(204).end();
     } catch (e) { next(e); }
   });
   app.get('/api/admin/shop-banners', admin, async (_req, res, next) => { try { res.json({ data: await repo.listShopBanners() }); } catch (e) { next(e); } });
   app.post('/api/admin/shop-banners', adminMutation, bannerUpload.single('media'), async (req, res, next) => {
+    let uploaded = null;
     try {
       const requestKey = String(req.get('Idempotency-Key') || '').trim();
       if (requestKey.length > 120) return res.status(400).json({ error: 'Idempotency key must be 120 characters or fewer' });
@@ -278,18 +286,29 @@ export function createApp({ repo = createRepository(), secret = serverConfig.adm
       const title = String(req.body?.title || '').trim().slice(0, 120);
       const linkUrl = String(req.body?.linkUrl || '').trim();
       if (!validBannerLink(linkUrl)) return res.status(400).json({ error: 'Banner link must use HTTPS or a site-relative path' });
-      const uploaded = await bannerUploader(req.file);
-      const input = { title, link_url: linkUrl || null, media_url: uploaded.url, media_type: uploaded.mediaType || (req.file.mimetype.startsWith('video/') ? 'video' : 'image'), active: req.body?.active !== 'false', order_index: Number(req.body?.orderIndex) || 0 };
+      uploaded = await bannerUploader(req.file);
+      const input = { title, link_url: linkUrl || null, media_url: uploaded.url, media_type: uploaded.mediaType || (req.file.mimetype.startsWith('video/') ? 'video' : 'image'), storage_public_id: uploaded.publicId || null, active: req.body?.active !== 'false', order_index: Number(req.body?.orderIndex) || 0 };
       if (creationKey) {
         const result = await repo.createShopBannerIdempotently(input, creationKey);
+        if (result.duplicate) await cleanupCloudinaryAsset(uploaded.publicId, uploaded.url, uploaded.mediaType === 'video' ? 'video' : 'image');
         return res.status(result.duplicate ? 200 : 201).json({ data: result.banner, ...(result.duplicate ? { duplicate: true } : {}) });
       }
       res.status(201).json({ data: await repo.createShopBanner(input) });
-    } catch (e) { next(e); }
+    } catch (e) { if (uploaded) await cleanupCloudinaryAsset(uploaded.publicId, uploaded.url, uploaded.mediaType === 'video' ? 'video' : 'image'); next(e); }
   });
-  app.patch('/api/admin/shop-banners/:id', adminMutation, async (req, res, next) => {
+  app.patch('/api/admin/shop-banners/:id', adminMutation, bannerUpload.single('media'), async (req, res, next) => {
+    let uploaded = null;
     try {
+      const current = await repo.listShopBanners().then((items) => items.find((item) => String(item.id) === String(req.params.id)));
+      if (!current) return res.status(404).json({ error: 'Shop banner not found' });
       const input = {};
+      if (req.file) {
+        if (req.file.mimetype.startsWith('image/') && req.file.size > 5 * 1024 * 1024) return res.status(413).json({ error: 'Banner images must be 5 MB or smaller' });
+        uploaded = await bannerUploader(req.file);
+        input.media_url = uploaded.url;
+        input.media_type = uploaded.mediaType || (req.file.mimetype.startsWith('video/') ? 'video' : 'image');
+        input.storage_public_id = uploaded.publicId || null;
+      }
       if (req.body?.title !== undefined) input.title = String(req.body.title).trim().slice(0, 120);
       if (req.body?.linkUrl !== undefined) {
         const linkUrl = String(req.body.linkUrl || '').trim();
@@ -300,12 +319,14 @@ export function createApp({ repo = createRepository(), secret = serverConfig.adm
       if (req.body?.orderIndex !== undefined) input.order_index = Math.max(0, Number(req.body.orderIndex) || 0);
       const banner = await repo.updateShopBanner(req.params.id, input);
       if (!banner) return res.status(404).json({ error: 'Shop banner not found' });
+      if (uploaded && current.storage_public_id) await cleanupCloudinaryAsset(current.storage_public_id, current.media_url, current.media_type === 'video' ? 'video' : 'image', { id: current.id });
       res.json({ data: banner });
-    } catch (e) { next(e); }
+    } catch (e) { if (uploaded) await cleanupCloudinaryAsset(uploaded.publicId, uploaded.url, uploaded.mediaType === 'video' ? 'video' : 'image'); next(e); }
   });
-  app.delete('/api/admin/shop-banners/:id', adminMutation, async (req, res, next) => { try { if (!await repo.deleteShopBanner(req.params.id)) return res.status(404).json({ error: 'Shop banner not found' }); res.status(204).end(); } catch (e) { next(e); } });
+  app.delete('/api/admin/shop-banners/:id', adminMutation, async (req, res, next) => { try { const current = await repo.listShopBanners().then((items) => items.find((item) => String(item.id) === String(req.params.id))); if (!current || !await repo.deleteShopBanner(req.params.id)) return res.status(404).json({ error: 'Shop banner not found' }); await cleanupCloudinaryAsset(current.storage_public_id, current.media_url, current.media_type === 'video' ? 'video' : 'image', { id: current.id }); res.status(204).end(); } catch (e) { next(e); } });
   app.get('/api/admin/products', admin, async (req, res, next) => { try { res.json({ data: await repo.listProducts({ admin: true, q: req.query.q || '', category: req.query.category || '' }) }); } catch (e) { next(e); } });
   app.post('/api/admin/products', adminMutation, upload.array('images', 8), async (req, res, next) => {
+    let uploadedAssets = [];
     try {
       const requestKey = String(req.get('Idempotency-Key') || '').trim();
       if (requestKey.length > 120) return res.status(400).json({ error: 'Idempotency key must be 120 characters or fewer' });
@@ -315,21 +336,24 @@ export function createApp({ repo = createRepository(), secret = serverConfig.adm
         if (existing) return res.status(200).json({ data: existing, duplicate: true });
       }
       const input = productInput(req.body);
-      const imagePaths = await uploadProductImages(req.files || [], imageUploader);
+      const uploaded = await uploadProductImages(req.files || [], imageUploader, (item) => uploadedAssets.push(item));
+      const imagePaths = uploaded.map((item) => item.url);
       const mainIndex = Math.max(0, Math.min(Number(req.body.mainImageIndex || 0), imagePaths.length - 1));
       input.image_paths = imagePaths;
+      input.image_public_ids = uploaded.map((item) => item.publicId).filter(Boolean);
       input.image_path = imagePaths[mainIndex] || null;
       if (creationKey) {
         const result = await repo.createProductIdempotently(input, creationKey);
+        if (result.duplicate) for (const item of uploaded) await cleanupCloudinaryAsset(item.publicId, item.url, 'image');
         return res.status(result.duplicate ? 200 : 201).json({ data: result.product, ...(result.duplicate ? { duplicate: true } : {}) });
       }
       res.status(201).json({ data: await repo.createProduct(input) });
-    } catch (e) { next(e); }
+    } catch (e) { await Promise.allSettled(uploadedAssets.map((item) => cleanupCloudinaryAsset(item.publicId, item.url, 'image'))); next(e); }
   });
-  app.patch('/api/admin/products/:id', adminMutation, upload.array('images', 8), async (req, res, next) => { try { const input = productInput(req.body, { partial: true }); const imagePaths = await uploadProductImages(req.files || [], imageUploader); if (imagePaths.length) { const mainIndex = Math.max(0, Math.min(Number(req.body.mainImageIndex || 0), imagePaths.length - 1)); input.image_paths = imagePaths; input.image_path = imagePaths[mainIndex]; } const updated = await repo.updateProduct(req.params.id, input); if (!updated) return res.status(404).json({ error: 'Product not found' }); res.json({ data: updated }); } catch (e) { next(e); } });
+  app.patch('/api/admin/products/:id', adminMutation, upload.array('images', 8), async (req, res, next) => { let newlyUploaded = []; try { const current = await repo.getProduct(req.params.id); if (!current) return res.status(404).json({ error: 'Product not found' }); const input = productInput(req.body, { partial: true }); await uploadProductImages(req.files || [], imageUploader, (item) => newlyUploaded.push(item)); if (newlyUploaded.length) { const imagePaths = newlyUploaded.map((item) => item.url); const mainIndex = Math.max(0, Math.min(Number(req.body.mainImageIndex || 0), imagePaths.length - 1)); input.image_paths = imagePaths; input.image_public_ids = newlyUploaded.map((item) => item.publicId).filter(Boolean); input.image_path = imagePaths[mainIndex]; } const updated = await repo.updateProduct(req.params.id, input); if (!updated) return res.status(404).json({ error: 'Product not found' }); if (newlyUploaded.length) for (let i = 0; i < (current.image_public_ids || []).length; i += 1) await cleanupCloudinaryAsset(current.image_public_ids[i], current.image_paths?.[i] || current.image_path, 'image', { id: current.id }); res.json({ data: updated }); } catch (e) { await Promise.allSettled(newlyUploaded.map((item) => cleanupCloudinaryAsset(item.publicId, item.url, 'image'))); next(e); } });
   app.post('/api/admin/products/:id/publish', adminMutation, async (req, res, next) => { try { const updated = await repo.updateProduct(req.params.id, { verification_status: 'verified', active: true }); if (!updated) return res.status(404).json({ error: 'Product not found' }); res.json({ data: updated }); } catch (e) { next(e); } });
   app.post('/api/admin/products/:id/unpublish', adminMutation, async (req, res, next) => { try { const updated = await repo.updateProduct(req.params.id, { active: false }); if (!updated) return res.status(404).json({ error: 'Product not found' }); res.json({ data: updated }); } catch (e) { next(e); } });
-  app.delete('/api/admin/products/:id', adminMutation, async (req, res, next) => { try { const product = await repo.getProduct(req.params.id); if (!product || !await repo.deleteProduct(req.params.id)) return res.status(404).json({ error: 'Product not found' }); removeUploadedFiles(product); res.status(204).end(); } catch (e) { next(e); } });
+  app.delete('/api/admin/products/:id', adminMutation, async (req, res, next) => { try { const product = await repo.getProduct(req.params.id); if (!product || !await repo.deleteProduct(req.params.id)) return res.status(404).json({ error: 'Product not found' }); removeUploadedFiles(product); for (let i = 0; i < (product.image_public_ids || []).length; i += 1) await cleanupCloudinaryAsset(product.image_public_ids[i], product.image_paths?.[i] || product.image_path, 'image', { id: product.id }); res.status(204).end(); } catch (e) { next(e); } });
   app.get('/api/admin/orders', admin, async (_req, res, next) => { try { res.json({ data: await repo.listOrders() }); } catch (e) { next(e); } });
   app.get('/api/admin/payment-settings', admin, (_req, res) => res.json({ data: paymentConfig() }));
   app.patch('/api/admin/orders/:id/status', adminMutation, async (req, res, next) => { try { if (!orderStatuses.includes(req.body?.status)) return res.status(400).json({ error: 'Invalid order status' }); const order = await repo.updateOrderStatus(req.params.id, req.body.status); if (!order) return res.status(404).json({ error: 'Order not found' }); if (order.invalidTransition) return res.status(409).json({ error: 'This order status transition is not allowed' }); res.json({ data: order }); } catch (e) { next(e); } });

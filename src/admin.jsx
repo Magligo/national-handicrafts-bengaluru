@@ -5,7 +5,7 @@ import { formatPrice } from './services/currency.js';
 const categories = ['Brass', 'Copper', 'Puja Articles', 'Dining & Thali Sets', 'Decorative Handicrafts'];
 const statuses = ['all', 'pending', 'verified', 'rejected'];
 const orderStatuses = ['enquiry', 'pending', 'confirmed', 'processing', 'packed', 'shipped', 'delivered', 'completed', 'cancelled'];
-const blankForm = { name: '', sku: '', category: 'Brass', description: '', price: '', discountPercent: '', stock: '', unit: 'Piece', dimensions: '', weight: '', material: '', finish: '', availability: 'enquiry', sourceCatalogue: '', sourcePage: '', variants: [], specifications: {}, verificationStatus: 'pending', active: 'false' };
+const blankForm = { name: '', sku: '', category: 'Brass', description: '', price: '', discountPercent: '', stock: '', unit: 'Piece', dimensions: '', weight: '', material: '', finish: '', availability: 'available', sourceCatalogue: '', sourcePage: '', variants: [], specifications: {}, verificationStatus: 'pending', active: 'false' };
 
 function ShopBannersPanel({ banners, reload, adminRequest, setMessage }) {
   const [file, setFile] = useState(null); const [preview, setPreview] = useState(''); const [title, setTitle] = useState(''); const [linkUrl, setLinkUrl] = useState(''); const [saving, setSaving] = useState(false); const [uploadToast, setUploadToast] = useState(''); const creationKey = useRef(crypto.randomUUID()); const mediaInputRef = useRef(null);

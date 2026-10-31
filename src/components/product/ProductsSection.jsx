@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { CATEGORIES } from '../../constants/catalogue.js';
 import { api } from '../../services/api.js';
 import ProductCard from './ProductCard.jsx';
@@ -10,6 +10,7 @@ const defaultFilters = { category: '', minPrice: '', maxPrice: '', availability:
 export function ShopBannerCarousel() {
   const [banners, setBanners] = useState([]);
   const [index, setIndex] = useState(0);
+  const touchStart = useRef(null);
   useEffect(() => {
     const controller = new AbortController();
     api('/shop-banners', { signal: controller.signal }).then((response) => {
@@ -31,8 +32,20 @@ export function ShopBannerCarousel() {
   useEffect(() => { if (index >= banners.length) setIndex(0); }, [banners.length, index]);
   if (!banners.length) return null;
   const move = (step) => setIndex((current) => (current + step + banners.length) % banners.length);
+  const handleTouchStart = (event) => {
+    const touch = event.touches[0];
+    touchStart.current = { x: touch.clientX, y: touch.clientY };
+  };
+  const handleTouchEnd = (event) => {
+    if (!touchStart.current || banners.length < 2) return;
+    const touch = event.changedTouches[0];
+    const deltaX = touch.clientX - touchStart.current.x;
+    const deltaY = touch.clientY - touchStart.current.y;
+    touchStart.current = null;
+    if (Math.abs(deltaX) >= 40 && Math.abs(deltaX) > Math.abs(deltaY)) move(deltaX < 0 ? 1 : -1);
+  };
   return <div className="shop-banner-wrap"><section className="shop-banner" aria-label="Shop promotions" aria-roledescription={banners.length > 1 ? 'carousel' : undefined}>
-    <div className="shop-banner-track" style={{ transform: `translateX(-${index * 100}%)` }}>
+    <div className="shop-banner-track" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd} onTouchCancel={() => { touchStart.current = null; }} style={{ transform: `translateX(-${index * 100}%)` }}>
       {banners.map((banner, slideIndex) => {
         const content = banner.media_type === 'video'
           ? <video src={banner.media_url} muted playsInline loop autoPlay={slideIndex === index} preload={slideIndex === index ? 'metadata' : 'none'} aria-label={banner.title || 'Shop promotion'} />
@@ -43,11 +56,6 @@ export function ShopBannerCarousel() {
         </div>;
       })}
     </div>
-    {banners.length > 1 && <>
-      <button type="button" className="shop-banner-arrow previous" aria-label="Previous promotion" onClick={() => move(-1)}>‹</button>
-      <button type="button" className="shop-banner-arrow next" aria-label="Next promotion" onClick={() => move(1)}>›</button>
-      <div className="shop-banner-dots" role="group" aria-label="Choose promotion">{banners.map((banner, dotIndex) => <button key={banner.id} type="button" aria-label={`Show promotion ${dotIndex + 1}`} aria-current={dotIndex === index ? 'true' : undefined} className={dotIndex === index ? 'active' : ''} onClick={() => setIndex(dotIndex)} />)}</div>
-    </>}
   </section></div>;
 }
 

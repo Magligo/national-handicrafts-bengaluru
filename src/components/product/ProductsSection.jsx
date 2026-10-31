@@ -75,14 +75,26 @@ function FilterControls({ values, onChange }) {
   </>;
 }
 
+function SlidersIcon() {
+  return <svg aria-hidden="true" viewBox="0 0 18 18" width="16" height="16" fill="none"><path d="M3 5h12M3 13h12M7 3v4m4 4v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>;
+}
+
 export default function ProductsSection({ products, refresh, openProduct, addToCart, buyNow, catalogueState, catalogueError, searchQuery, setSearchQuery, filterOpen, setFilterOpen }) {
   const [filters, setFilters] = useState(defaultFilters);
   const [draftFilters, setDraftFilters] = useState(defaultFilters);
   const updateFilter = (key, value) => setFilters((current) => ({ ...current, [key]: value }));
   const updateDraftFilter = (key, value) => setDraftFilters((current) => ({ ...current, [key]: value }));
-  const clearFilters = () => { setFilters(defaultFilters); setDraftFilters(defaultFilters); };
+  const clearFilters = () => setDraftFilters(defaultFilters);
   const applyFilters = () => { setFilters(draftFilters); setFilterOpen(false); };
   useEffect(() => { if (filterOpen) setDraftFilters(filters); }, [filterOpen]);
+  useEffect(() => {
+    if (!filterOpen) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event) => { if (event.key === 'Escape') setFilterOpen(false); };
+    document.body.style.overflow = 'hidden';
+    document.addEventListener('keydown', closeOnEscape);
+    return () => { document.body.style.overflow = previousOverflow; document.removeEventListener('keydown', closeOnEscape); };
+  }, [filterOpen, setFilterOpen]);
 
   const filtered = useMemo(() => {
     return filterAndSortProducts(products, { ...filters, query: searchQuery });
@@ -91,14 +103,14 @@ export default function ProductsSection({ products, refresh, openProduct, addToC
   const activeFilterCount = [filters.category, filters.minPrice, filters.maxPrice, filters.availability !== 'all' ? filters.availability : '', filters.sort !== 'featured' ? filters.sort : ''].filter(Boolean).length;
   const hasCriteria = Boolean(searchQuery.trim() || activeFilterCount);
   const invalidRange = filters.minPrice !== '' && filters.maxPrice !== '' && Number(filters.minPrice) > Number(filters.maxPrice);
-  const filterSummary = activeFilterCount ? `${activeFilterCount} filter${activeFilterCount === 1 ? '' : 's'} active` : 'All products';
 
+  const closeFilters = () => { setDraftFilters(filters); setFilterOpen(false); };
   return <section className="section products-page">
     <div className="catalogue-toolbar" aria-label="Product filters">
-      <div className="catalogue-filter-desktop"><FilterControls values={filters} onChange={updateFilter} /><button className="catalogue-clear" type="button" onClick={clearFilters} disabled={!activeFilterCount}>Clear all</button></div>
-      {filterOpen && <div className="filter-drawer" role="dialog" aria-modal="true" aria-label="Filter and sort products"><div className="filter-drawer-heading"><strong>Filter &amp; Sort</strong><button type="button" onClick={() => setFilterOpen(false)} aria-label="Close filters">×</button></div><div className="catalogue-filter-mobile"><FilterControls values={draftFilters} onChange={updateDraftFilter} /></div><div className="filter-drawer-actions"><button className="button secondary" type="button" onClick={clearFilters}>Clear all</button><button className="button primary" type="button" onClick={applyFilters}>Apply filters</button></div></div>}
     </div>
-    <div className="catalogue-results-bar"><p>{catalogueState === 'loading' ? 'Loading verified products…' : catalogueState === 'error' ? 'Catalogue temporarily unavailable' : invalidRange ? 'Choose a maximum price greater than the minimum.' : `Showing ${filtered.length} product${filtered.length === 1 ? '' : 's'}`}</p><span>{filterSummary}{searchQuery.trim() ? ` · “${searchQuery.trim()}”` : ''}</span></div>
+    <div className="catalogue-results-bar"><p>{catalogueState === 'loading' ? 'Loading verified products…' : catalogueState === 'error' ? 'Catalogue temporarily unavailable' : invalidRange ? 'Choose a maximum price greater than the minimum.' : `Showing ${filtered.length} product${filtered.length === 1 ? '' : 's'}`}</p><button type="button" className={`catalogue-filter-trigger${activeFilterCount ? ' has-filters' : ''}`} aria-expanded={filterOpen} aria-controls="catalogue-filter-sheet" onClick={() => setFilterOpen(true)}><SlidersIcon /><span>Filter</span>{activeFilterCount > 0 && <small>{activeFilterCount}</small>}</button></div>
+    <button type="button" className={`catalogue-filter-backdrop${filterOpen ? ' is-open' : ''}`} aria-label="Close filters" aria-hidden={!filterOpen} tabIndex={filterOpen ? 0 : -1} onClick={closeFilters} />
+    <section id="catalogue-filter-sheet" className={`catalogue-filter-sheet${filterOpen ? ' is-open' : ''}`} role="dialog" aria-modal={filterOpen || undefined} aria-hidden={!filterOpen} inert={!filterOpen} aria-label="Filter and sort products"><div className="catalogue-filter-sheet-head"><div><p className="eyebrow">REFINE THE COLLECTION</p><h2>Filter &amp; sort</h2></div><button type="button" className="catalogue-filter-close" onClick={closeFilters} aria-label="Close filters">×</button></div><div className="catalogue-filter-sheet-controls"><FilterControls values={draftFilters} onChange={updateDraftFilter} /></div><div className="catalogue-filter-sheet-actions"><button className="catalogue-clear-all" type="button" onClick={clearFilters}>Clear All</button><button className="button primary" type="button" onClick={applyFilters}>Apply Filters</button></div></section>
     {catalogueState === 'loading' ? <CatalogueSkeleton /> : catalogueState === 'error' ? <ErrorState onRetry={refresh} message={catalogueError} /> : filtered.length ? <div className="product-grid">{filtered.map((product) => <ProductCard key={product.id} product={product} openProduct={openProduct} addToCart={addToCart} buyNow={buyNow} />)}</div> : <div className="verified-empty"><p>{hasCriteria ? 'No products match those choices.' : 'No matching verified products.'}</p><span>{hasCriteria ? 'Try clearing a filter or searching for another product.' : 'Product records added and verified in the admin portal appear here automatically.'}</span>{hasCriteria && <button className="text-button" type="button" onClick={() => { setSearchQuery(''); clearFilters(); }}>Clear search and filters</button>}</div>}
   </section>;
 }

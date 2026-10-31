@@ -67,6 +67,7 @@ function App() {
   const [profileNavigationError, setProfileNavigationError] = useState('');
   const profileNavigationInFlight = useRef(false);
   const { cart, addToCart: addCartItem, setQuantity, removeFromCart, clearCart, reconcile } = useCart();
+  useEffect(() => { document.body.classList.toggle('admin-route', page === 'admin'); return () => document.body.classList.remove('admin-route'); }, [page]);
   const addToCart = (product, trigger) => {
     if (!productPurchaseState(product, product.variant).canPurchase) return false;
     const existingQuantity = cart.find((item) => cartItemKey(item) === cartItemKey(product))?.quantity || 0;
@@ -139,7 +140,7 @@ function App() {
     {page === 'cart' && <Cart setPage={navigate} onCheckout={checkoutCart} cart={cart} setQuantity={setQuantity} removeFromCart={removeFromCart} clearCart={clearCart} />}
     {page === 'checkout' && <ProtectedCheckout setPage={navigate} setSkipNextCustomerSessionCheck={setSkipNextCustomerSessionCheck} sessionVerified={checkoutSessionVerified} items={checkoutItems} clearCart={clearCart} isCart={checkoutFromCart} />}
     {page === 'admin' && <Suspense fallback={<section className="section admin-page"><LoadingState label="Loading the admin portal…" /></section>}><AdminPortal refresh={refresh} verifiedAdminEntry={verifiedAdminEntry} onAdminSessionEntryConsumed={() => setVerifiedAdminEntry(null)} /></Suspense>}
-  </main><Footer setPage={navigate} /><MobileBottomNavigation page={page} onNavigate={navigate} onOpenFilters={openCatalogueFilters} onAccountClick={openProfile} profileNavigationBusy={profileNavigationBusy} cartCount={cart.reduce((sum, item) => sum + item.quantity, 0)} filtersOpen={catalogueFiltersOpen} /> </>;
+  </main>{page !== 'admin' && <Footer setPage={navigate} />}{page !== 'admin' && <MobileBottomNavigation page={page} onNavigate={navigate} onOpenFilters={openCatalogueFilters} onAccountClick={openProfile} profileNavigationBusy={profileNavigationBusy} cartCount={cart.reduce((sum, item) => sum + item.quantity, 0)} filtersOpen={catalogueFiltersOpen} />} </>;
 }
 
 function MobileBottomNavigation({ page, onNavigate, onOpenFilters, onAccountClick, profileNavigationBusy, cartCount, filtersOpen }) {

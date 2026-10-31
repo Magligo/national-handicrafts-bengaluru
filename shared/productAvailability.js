@@ -13,7 +13,7 @@ export function productPurchaseState(product, variant = null) {
     return { canPurchase: false, kind: 'enquiry', label: 'Enquiry only', action: 'Enquire' };
   }
   if (availability === 'out_of_stock' || (availability === 'available' && (variant ? stock == null || Number(stock) <= 0 : stock != null && Number(stock) <= 0))) {
-    return { canPurchase: false, kind: 'out-of-stock', label: 'Out of stock', action: 'Unavailable' };
+    return { canPurchase: false, kind: 'out-of-stock', label: 'Out of Stock', action: 'Unavailable' };
   }
   if (availability === 'made_to_order') {
     return { canPurchase: true, kind: 'made-to-order', label: 'Made to order', action: 'Add to cart' };

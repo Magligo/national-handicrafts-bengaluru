@@ -1749,3 +1749,32 @@ button:focus-visible, a:focus-visible, [role="button"]:focus-visible, summary:fo
   .admin-mobile-nav button.active{border-color:var(--ink);background:var(--ink);color:#fffaf2}
   .admin-mobile-nav button:focus-visible{outline:2px solid #9a562f;outline-offset:2px}
 }
+
+/* Compact catalogue cards: every product action stays inside the viewport. */
+@media(max-width:1000px){
+  .admin-content .admin-product-table{overflow:visible;}
+  .admin-content .admin-product-table-head{display:none;}
+  .admin-content .admin-product-row{min-width:0;width:100%;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:.6rem .85rem;padding:14px;background:#fcfaf6;border:1px solid rgba(31,29,25,.14);margin:0 0 10px;box-sizing:border-box;}
+  .admin-content .admin-product-identity{grid-column:1/-1;min-width:0;}
+  .admin-content .admin-product-identity strong{white-space:normal;overflow-wrap:anywhere;}
+  .admin-content .admin-product-identity small{overflow-wrap:anywhere;font-size:.68rem;}
+  .admin-content .product-category::before{content:'Category: ';color:var(--muted);font-size:.7rem;}
+  .admin-content .product-price::before{content:'Price: ';color:var(--muted);font-size:.7rem;}
+  .admin-content .product-stock-quantity::before{content:'Qty: ';color:var(--muted);font-size:.7rem;}
+  .admin-content .product-publication{justify-self:start;}
+  .admin-content .admin-row-actions{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding-top:10px;border-top:1px solid rgba(31,29,25,.12);min-width:0;}
+  .admin-content .admin-row-actions button{min-height:42px;padding:8px 10px;border:1px solid rgba(31,29,25,.18);border-radius:4px;text-decoration:none;background:#f5f1e9;font-size:.78rem;}
+  .admin-content .admin-row-actions .inventory-toggle{color:#fff;background:#4f644c;border-color:#4f644c;}
+  .admin-content .admin-row-actions .danger-action{color:#9a4937;border-color:rgba(154,73,55,.35);}
+  .admin-content .admin-row-actions .status-pill{margin-right:2px;}
+  .admin-content,.admin-workspace,.admin-products,.admin-product-table{min-width:0;max-width:100%;}
+}
+@media(max-width:430px){
+  .admin-content .admin-product-row{padding:11px;gap:.5rem .65rem;}
+  .admin-content .admin-product-identity img,.admin-content .admin-thumb-placeholder{width:46px;height:46px;}
+  .admin-content .admin-row-actions{gap:6px;}
+  .admin-content .admin-row-actions button{flex:1 1 auto;min-width:92px;}
+  .admin-content .admin-row-actions .status-pill{flex:0 0 auto;min-width:auto;}
+  .admin-content .admin-filters{grid-template-columns:minmax(0,1fr) minmax(0,1fr);}
+  .admin-content .admin-filters>*{min-width:0;max-width:100%;}
+}

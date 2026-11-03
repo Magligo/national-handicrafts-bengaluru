@@ -10,11 +10,14 @@ export async function invalidateVercelCatalogueCache({ env = process.env, fetchI
   }
 
   const params = new URLSearchParams({ projectIdOrName: projectId, ...(env.VERCEL_TEAM_ID ? { teamId: env.VERCEL_TEAM_ID } : {}) });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
   try {
     const response = await fetchImpl(`https://api.vercel.com/v1/edge-cache/invalidate-by-tags?${params}`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ tags: [cacheTag], target: 'production' }),
+      signal: controller.signal,
     });
     if (!response.ok) {
       logger.warn('[catalogue] Vercel CDN invalidation failed', { status: response.status });
@@ -25,5 +28,7 @@ export async function invalidateVercelCatalogueCache({ env = process.env, fetchI
   } catch (error) {
     logger.warn('[catalogue] Vercel CDN invalidation failed', { name: error?.name || 'Error' });
     return false;
+  } finally {
+    clearTimeout(timeout);
   }
 }

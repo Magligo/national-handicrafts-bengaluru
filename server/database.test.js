@@ -2,11 +2,32 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import pg from 'pg';
 import { assertUtf8DatabaseEncoding } from './db/migrate.js';
+import { PostgresRepository } from './repository.js';
 
 test('database startup accepts UTF8 and rejects incompatible encodings', () => {
   assert.doesNotThrow(() => assertUtf8DatabaseEncoding('UTF8'));
   assert.throws(() => assertUtf8DatabaseEncoding('SQL_ASCII'), /must be UTF8/);
   assert.throws(() => assertUtf8DatabaseEncoding(undefined), /must be UTF8/);
+});
+
+test('public catalogue SQL uses the partial verified-product filter and omits inactive optional clauses', async () => {
+  const repository = new PostgresRepository('postgresql://user:password@localhost/catalogue-test');
+  const calls = [];
+  repository.pool.connect = async () => ({
+    query: async (sql, values) => { calls.push({ sql, values }); return { rows: [], rowCount: 0 }; },
+    release() {},
+  });
+  try {
+    await repository.listProducts();
+    assert.match(calls[0].sql, /WHERE active = TRUE AND verification_status = 'verified' ORDER BY name$/);
+    assert.deepEqual(calls[0].values, []);
+
+    await repository.listProducts({ q: ' diya ', category: 'Brass' });
+    assert.match(calls[1].sql, /WHERE active = TRUE AND verification_status = 'verified' AND \(name ILIKE \$1 OR category ILIKE \$1 OR COALESCE\(sku, ''\) ILIKE \$1\) AND category = \$2 ORDER BY name$/);
+    assert.deepEqual(calls[1].values, ['%diya%', 'Brass']);
+  } finally {
+    await repository.close();
+  }
 });
 
 test('PostgreSQL temporary text storage round-trips Indian Unicode and punctuation', { skip: !process.env.TEST_DATABASE_URL && 'Set TEST_DATABASE_URL to run the PostgreSQL UTF-8 round-trip integration check.' }, async () => {

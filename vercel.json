@@ -7,10 +7,6 @@
         {
           "key": "x-vercel-enable-rewrite-caching",
           "value": "1"
-        },
-        {
-          "key": "CDN-Cache-Control",
-          "value": "public, s-maxage=60, stale-while-revalidate=86400, stale-if-error=86400"
         }
       ]
     },

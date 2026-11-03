@@ -3,7 +3,9 @@ import { api } from './api.js';
 const requestTimeoutMs = 30000;
 const retryDelaysMs = [1200, 3000];
 const cacheKey = 'national-handicrafts-public-catalogue-v1';
-const cacheTtlMs = 15000;
+// Keep a local snapshot available across visits. It is rendered immediately and
+// refreshed from the shared Vercel cache in the background on every page load.
+const cacheTtlMs = 7 * 24 * 60 * 60 * 1000;
 let inFlightProducts = null;
 
 const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));

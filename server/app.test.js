@@ -300,9 +300,24 @@ test('admin can add a verified product and it becomes public', async () => {
   assert.equal(created.status, 201);
   const products = await request(app).get('/api/products');
   assert.equal(products.body.data[0].name, 'Test Bell');
-  assert.match(products.headers['cache-control'], /max-age=0.*s-maxage=60.*stale-while-revalidate=86400/);
+  assert.match(products.headers['cache-control'], /max-age=0.*s-maxage=60.*stale-while-revalidate=86400.*stale-if-error=86400/);
   assert.equal(products.headers['vercel-cache-tag'], 'public-catalogue');
   assert.equal(products.headers['vercel-cdn-cache-control'], 'public, s-maxage=60, stale-while-revalidate=86400, stale-if-error=86400');
+});
+
+test('uses the longer shared cache lifetime only when tag invalidation is configured', async () => {
+  const previousToken = process.env.VERCEL_TOKEN;
+  const previousProjectId = process.env.VERCEL_PROJECT_ID;
+  try {
+    process.env.VERCEL_TOKEN = 'test-token';
+    process.env.VERCEL_PROJECT_ID = 'prj_catalogue';
+    const { app } = await setup();
+    const response = await request(app).get('/api/products');
+    assert.equal(response.headers['vercel-cdn-cache-control'], 'public, s-maxage=3600, stale-while-revalidate=86400, stale-if-error=86400');
+  } finally {
+    if (previousToken === undefined) delete process.env.VERCEL_TOKEN; else process.env.VERCEL_TOKEN = previousToken;
+    if (previousProjectId === undefined) delete process.env.VERCEL_PROJECT_ID; else process.env.VERCEL_PROJECT_ID = previousProjectId;
+  }
 });
 
 test('Vercel catalogue cache invalidation uses the configured production project and public tag', async () => {

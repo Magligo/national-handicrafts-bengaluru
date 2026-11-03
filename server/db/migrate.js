@@ -27,17 +27,21 @@ export async function runMigrations(connectionString = process.env.DATABASE_URL)
     const encoding = await client.query('SHOW server_encoding');
     assertUtf8DatabaseEncoding(encoding.rows[0]?.server_encoding);
     await client.query(`CREATE TABLE IF NOT EXISTS schema_migrations (id TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
+    // Read the migration ledger once instead of making one Neon round trip per
+    // migration on every Render cold start.
+    const appliedResult = await client.query('SELECT id FROM schema_migrations');
+    const appliedMigrations = new Set(appliedResult.rows.map((row) => row.id));
     const files = ['schema.sql', ...(await fs.readdir(path.join(serverRoot, 'migrations'))).filter((file) => file.endsWith('.sql')).sort()];
     for (const file of files) {
       const id = file;
-      const alreadyApplied = await client.query('SELECT 1 FROM schema_migrations WHERE id = $1', [id]);
-      if (alreadyApplied.rowCount) continue;
+      if (appliedMigrations.has(id)) continue;
       const sql = await fs.readFile(path.join(file === 'schema.sql' ? serverRoot : path.join(serverRoot, 'migrations'), file), 'utf8');
       await client.query('BEGIN');
       try {
         await client.query(sql);
         await client.query('INSERT INTO schema_migrations (id) VALUES ($1)', [id]);
         await client.query('COMMIT');
+        appliedMigrations.add(id);
       } catch (error) {
         await client.query('ROLLBACK');
         const safe = safeDbError(error);

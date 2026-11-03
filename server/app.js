@@ -70,7 +70,7 @@ export function createApp({ repo = createRepository(), secret = serverConfig.adm
   const sessionSecret = secret || 'local-only-change-me';
   const customerSessionSecret = process.env.CUSTOMER_SESSION_SECRET || sessionSecret;
   const app = express();
-  const invalidatePublicCatalogue = () => { void invalidateVercelCatalogueCache(); };
+  const invalidatePublicCatalogue = () => invalidateVercelCatalogueCache();
   app.use((req, res, next) => {
     const supplied = req.get('X-Request-ID');
     req.requestId = supplied && /^[\w.-]{1,100}$/.test(supplied) ? supplied : createHash('sha1').update(`${Date.now()}-${Math.random()}`).digest('hex').slice(0, 16);
@@ -121,13 +121,16 @@ export function createApp({ repo = createRepository(), secret = serverConfig.adm
   app.get('/api/products', async (req, res, next) => {
     const startedAt = Date.now();
     try {
+      const canInvalidateCatalogue = Boolean(process.env.VERCEL_TOKEN && process.env.VERCEL_PROJECT_ID);
+      const sharedTtlSeconds = canInvalidateCatalogue ? 3600 : 60;
+      const sharedCacheControl = `public, s-maxage=${sharedTtlSeconds}, stale-while-revalidate=86400, stale-if-error=86400`;
       // This endpoint is public and contains only active, verified products. Vercel
       // caches it globally; browsers revalidate while stale CDN entries can be
       // served immediately as the backend refreshes them in the background.
       res.set({
-        'Cache-Control': 'public, max-age=0, s-maxage=60, stale-while-revalidate=86400, stale-if-error=86400',
-        'CDN-Cache-Control': 'public, s-maxage=60, stale-while-revalidate=86400, stale-if-error=86400',
-        'Vercel-CDN-Cache-Control': 'public, s-maxage=60, stale-while-revalidate=86400, stale-if-error=86400',
+        'Cache-Control': `public, max-age=0, ${sharedCacheControl}`,
+        'CDN-Cache-Control': sharedCacheControl,
+        'Vercel-CDN-Cache-Control': sharedCacheControl,
         'Vercel-Cache-Tag': 'public-catalogue',
       });
       const query = { q: req.query.q || '', category: req.query.category || '' };
@@ -201,6 +204,7 @@ export function createApp({ repo = createRepository(), secret = serverConfig.adm
       const idempotencyKey = String(req.get('Idempotency-Key') || req.body.idempotencyKey || '').trim().slice(0, 120);
       const configured = paymentConfig().enabled;
       const saved = await repo.createOrderWithInventory({ customer_id: req.customer?.id || null, customer: req.body.customer, requestedItems: req.body.items, shipping_inr: 0, payment_method: paymentMethod, payment_status: paymentMethod === 'COD' ? 'pending' : configured ? 'pending' : 'not_configured', payment_reference: null, idempotency_key: idempotencyKey || null, status: 'pending' });
+      if (!saved.duplicate) await invalidatePublicCatalogue();
       res.status(saved.duplicate ? 200 : 201).json({ data: saved.order, ...(saved.duplicate ? { duplicate: true } : {}), payment: paymentMethod === 'UPI' && configured ? paymentConfig() : { enabled: false } });
     } catch (error) { next(error); }
   });
@@ -366,18 +370,18 @@ export function createApp({ repo = createRepository(), secret = serverConfig.adm
       if (creationKey) {
         const result = await repo.createProductIdempotently(input, creationKey);
         if (result.duplicate) for (const item of uploaded) await cleanupCloudinaryAsset(item.publicId, item.url, 'image');
-        else invalidatePublicCatalogue();
+        else await invalidatePublicCatalogue();
         return res.status(result.duplicate ? 200 : 201).json({ data: result.product, ...(result.duplicate ? { duplicate: true } : {}) });
       }
       const created = await repo.createProduct(input);
-      invalidatePublicCatalogue();
+      await invalidatePublicCatalogue();
       res.status(201).json({ data: created });
     } catch (e) { await Promise.allSettled(uploadedAssets.map((item) => cleanupCloudinaryAsset(item.publicId, item.url, 'image'))); next(e); }
   });
-  app.patch('/api/admin/products/:id', adminMutation, upload.array('images', 8), async (req, res, next) => { let newlyUploaded = []; try { const current = await repo.getProduct(req.params.id); if (!current) return res.status(404).json({ error: 'Product not found' }); const input = productInput(req.body, { partial: true }); await uploadProductImages(req.files || [], imageUploader, (item) => newlyUploaded.push(item)); if (newlyUploaded.length) { const imagePaths = newlyUploaded.map((item) => item.url); const mainIndex = Math.max(0, Math.min(Number(req.body.mainImageIndex || 0), imagePaths.length - 1)); input.image_paths = imagePaths; input.image_public_ids = newlyUploaded.map((item) => item.publicId).filter(Boolean); input.image_path = imagePaths[mainIndex]; } const updated = await repo.updateProduct(req.params.id, input); if (!updated) return res.status(404).json({ error: 'Product not found' }); invalidatePublicCatalogue(); if (newlyUploaded.length) for (let i = 0; i < (current.image_public_ids || []).length; i += 1) await cleanupCloudinaryAsset(current.image_public_ids[i], current.image_paths?.[i] || current.image_path, 'image', { id: current.id }); res.json({ data: updated }); } catch (e) { await Promise.allSettled(newlyUploaded.map((item) => cleanupCloudinaryAsset(item.publicId, item.url, 'image'))); next(e); } });
-  app.post('/api/admin/products/:id/publish', adminMutation, async (req, res, next) => { try { const updated = await repo.updateProduct(req.params.id, { verification_status: 'verified', active: true }); if (!updated) return res.status(404).json({ error: 'Product not found' }); invalidatePublicCatalogue(); res.json({ data: updated }); } catch (e) { next(e); } });
-  app.post('/api/admin/products/:id/unpublish', adminMutation, async (req, res, next) => { try { const updated = await repo.updateProduct(req.params.id, { active: false }); if (!updated) return res.status(404).json({ error: 'Product not found' }); invalidatePublicCatalogue(); res.json({ data: updated }); } catch (e) { next(e); } });
-  app.delete('/api/admin/products/:id', adminMutation, async (req, res, next) => { try { const product = await repo.getProduct(req.params.id); if (!product || !await repo.deleteProduct(req.params.id)) return res.status(404).json({ error: 'Product not found' }); invalidatePublicCatalogue(); removeUploadedFiles(product); for (let i = 0; i < (product.image_public_ids || []).length; i += 1) await cleanupCloudinaryAsset(product.image_public_ids[i], product.image_paths?.[i] || product.image_path, 'image', { id: product.id }); res.status(204).end(); } catch (e) { next(e); } });
+  app.patch('/api/admin/products/:id', adminMutation, upload.array('images', 8), async (req, res, next) => { let newlyUploaded = []; try { const current = await repo.getProduct(req.params.id); if (!current) return res.status(404).json({ error: 'Product not found' }); const input = productInput(req.body, { partial: true }); await uploadProductImages(req.files || [], imageUploader, (item) => newlyUploaded.push(item)); if (newlyUploaded.length) { const imagePaths = newlyUploaded.map((item) => item.url); const mainIndex = Math.max(0, Math.min(Number(req.body.mainImageIndex || 0), imagePaths.length - 1)); input.image_paths = imagePaths; input.image_public_ids = newlyUploaded.map((item) => item.publicId).filter(Boolean); input.image_path = imagePaths[mainIndex]; } const updated = await repo.updateProduct(req.params.id, input); if (!updated) return res.status(404).json({ error: 'Product not found' }); await invalidatePublicCatalogue(); if (newlyUploaded.length) for (let i = 0; i < (current.image_public_ids || []).length; i += 1) await cleanupCloudinaryAsset(current.image_public_ids[i], current.image_paths?.[i] || current.image_path, 'image', { id: current.id }); res.json({ data: updated }); } catch (e) { await Promise.allSettled(newlyUploaded.map((item) => cleanupCloudinaryAsset(item.publicId, item.url, 'image'))); next(e); } });
+  app.post('/api/admin/products/:id/publish', adminMutation, async (req, res, next) => { try { const updated = await repo.updateProduct(req.params.id, { verification_status: 'verified', active: true }); if (!updated) return res.status(404).json({ error: 'Product not found' }); await invalidatePublicCatalogue(); res.json({ data: updated }); } catch (e) { next(e); } });
+  app.post('/api/admin/products/:id/unpublish', adminMutation, async (req, res, next) => { try { const updated = await repo.updateProduct(req.params.id, { active: false }); if (!updated) return res.status(404).json({ error: 'Product not found' }); await invalidatePublicCatalogue(); res.json({ data: updated }); } catch (e) { next(e); } });
+  app.delete('/api/admin/products/:id', adminMutation, async (req, res, next) => { try { const product = await repo.getProduct(req.params.id); if (!product || !await repo.deleteProduct(req.params.id)) return res.status(404).json({ error: 'Product not found' }); await invalidatePublicCatalogue(); removeUploadedFiles(product); for (let i = 0; i < (product.image_public_ids || []).length; i += 1) await cleanupCloudinaryAsset(product.image_public_ids[i], product.image_paths?.[i] || product.image_path, 'image', { id: product.id }); res.status(204).end(); } catch (e) { next(e); } });
   app.get('/api/admin/orders', admin, async (_req, res, next) => { try { res.json({ data: await repo.listOrders() }); } catch (e) { next(e); } });
   app.get('/api/admin/payment-settings', admin, (_req, res) => res.json({ data: paymentConfig() }));
   app.patch('/api/admin/orders/:id/status', adminMutation, async (req, res, next) => { try { if (!orderStatuses.includes(req.body?.status)) return res.status(400).json({ error: 'Invalid order status' }); const order = await repo.updateOrderStatus(req.params.id, req.body.status); if (!order) return res.status(404).json({ error: 'Order not found' }); if (order.invalidTransition) return res.status(409).json({ error: 'This order status transition is not allowed' }); res.json({ data: order }); } catch (e) { next(e); } });

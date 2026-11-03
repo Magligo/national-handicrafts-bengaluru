@@ -173,8 +173,21 @@ export class PostgresRepository {
   async updateShopBanner(id, input) { const fields = ['title', 'link_url', 'media_url', 'media_type', 'storage_public_id', 'active', 'order_index'].filter((field) => input[field] !== undefined); if (!fields.length) { const result = await this.query('SELECT * FROM shop_banners WHERE id=$1', [id]); return result.rows[0] || null; } const sets = fields.map((field, index) => `${field}=$${index + 1}`).join(', '); const result = await this.query(`UPDATE shop_banners SET ${sets}, updated_at=NOW() WHERE id=$${fields.length + 1} RETURNING *`, [...fields.map((field) => input[field]), id]); return result.rows[0] || null; }
   async deleteShopBanner(id) { const result = await this.query('DELETE FROM shop_banners WHERE id=$1', [id]); return result.rowCount > 0; }
   async listProducts({ admin = false, q = '', category = '', requestId = null } = {}) {
-    const visibility = admin ? '' : "AND active = TRUE AND verification_status = 'verified'";
+    const conditions = [];
     const columns = admin ? '*' : 'id, sku, name, category, description, price_inr, discount_percent, variants, specifications, stock, unit, dimensions, weight, material, finish, availability, image_path, image_paths, verification_status, active, created_at, updated_at';
+    if (!admin) conditions.push("active = TRUE AND verification_status = 'verified'");
+    const values = [];
+    const needle = q.trim();
+    if (needle) {
+      values.push(`%${needle}%`);
+      const parameter = `$${values.length}`;
+      conditions.push(`(name ILIKE ${parameter} OR category ILIKE ${parameter} OR COALESCE(sku, '') ILIKE ${parameter})`);
+    }
+    if (category) {
+      values.push(category);
+      conditions.push(`category = $${values.length}`);
+    }
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const startedAt = process.hrtime.bigint();
     let client;
     try {
@@ -182,7 +195,7 @@ export class PostgresRepository {
       client = await this.pool.connect();
       const poolAcquireMs = Number(process.hrtime.bigint() - acquireStartedAt) / 1e6;
       const queryStartedAt = process.hrtime.bigint();
-      const result = await client.query(`SELECT ${columns} FROM products WHERE 1=1 ${visibility} AND ($1 = '' OR name ILIKE $2 OR category ILIKE $2 OR COALESCE(sku, '') ILIKE $2) AND ($3 = '' OR category = $3) ORDER BY name`, [q.trim(), `%${q.trim()}%`, category]);
+      const result = await client.query(`SELECT ${columns} FROM products ${where} ORDER BY name`, values);
       const queryDurationMs = Number(process.hrtime.bigint() - queryStartedAt) / 1e6;
       if (!admin) console.info('[database] Public catalogue query', { requestId, poolAcquireMs, queryDurationMs, durationMs: Number(process.hrtime.bigint() - startedAt) / 1e6, count: result.rowCount });
       return result.rows;

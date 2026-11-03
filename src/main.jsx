@@ -4,6 +4,7 @@ import QRCode from 'qrcode';
 import './styles.css';
 import SafeImage from './components/common/SafeImage.jsx';
 import ProductsSection, { ShopBannerCarousel } from './components/product/ProductsSection.jsx';
+import CategoryShowcase from './components/product/CategoryShowcase.jsx';
 import GalleryPage from './components/gallery/GalleryPage.jsx';
 import CatalogueProductCard from './components/product/ProductCard.jsx';
 import ScrollToTop from './ScrollToTop.jsx';
@@ -61,6 +62,7 @@ function App() {
   const catalogueRenderStartRef = useRef(null);
   const catalogueRenderRequestIdRef = useRef(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [homepageCategorySelection, setHomepageCategorySelection] = useState({ category: '', revision: 0 });
   const [catalogueFiltersOpen, setCatalogueFiltersOpen] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
   const [profileEntry, setProfileEntry] = useState(null);
@@ -139,8 +141,14 @@ function App() {
   const buyNow = (product) => requireCheckout([{ id: product.id, name: product.name, category: product.category, price_inr: product.price_inr, stock: product.stock, image_path: product.image_path || null, variantId: product.variantId || null, variant: product.variant || null, quantity: 1 }]);
   const checkoutCart = () => { const unavailable = cart.find((item) => !productPurchaseState(item, item.variant).canPurchase); if (unavailable) { window.alert(`${unavailable.name} is no longer available to purchase. Remove it or choose another option.`); return; } return requireCheckout(cart, { fromCart: true }); };
   const openCatalogueFilters = () => { if (page !== 'products') navigate('products'); setCatalogueFiltersOpen(true); };
+  const selectHomepageCategory = (category) => {
+    setHomepageCategorySelection((current) => ({ category, revision: current.revision + 1 }));
+    setSearchQuery('');
+    navigate('products');
+  };
   return <><ScrollToTop page={page} pathname={location.pathname} navigationKey={navigationKey} />{showSplash && <LoadingScreen />}<SiteNavigationV2 page={page} setPage={navigate} cartCount={cart.reduce((sum, item) => sum + item.quantity, 0)} searchQuery={searchQuery} setSearchQuery={setSearchQuery} onProfileClick={openProfile} profileNavigationBusy={profileNavigationBusy} profileNavigationError={profileNavigationError} />{['home', 'products'].includes(page) && <ShopBannerCarousel />}<main>
-    {['home', 'products'].includes(page) && <div id="products" className="scroll-section"><ProductsSection products={products} refresh={refresh} openProduct={openProduct} addToCart={addToCart} buyNow={buyNow} catalogueState={catalogueState} catalogueError={catalogueError} searchQuery={searchQuery} setSearchQuery={setSearchQuery} filterOpen={catalogueFiltersOpen} setFilterOpen={setCatalogueFiltersOpen} /></div>}
+    {page === 'home' && <CategoryShowcase products={products} onSelectCategory={selectHomepageCategory} />}
+    {['home', 'products'].includes(page) && <div id="products" className="scroll-section"><ProductsSection products={products} refresh={refresh} openProduct={openProduct} addToCart={addToCart} buyNow={buyNow} catalogueState={catalogueState} catalogueError={catalogueError} searchQuery={searchQuery} setSearchQuery={setSearchQuery} filterOpen={catalogueFiltersOpen} setFilterOpen={setCatalogueFiltersOpen} categorySelection={homepageCategorySelection} /></div>}
     {page === 'about' && <div id="about" className="scroll-section"><About /></div>}
     {page === 'gallery' && <GalleryPage />}
     {page === 'detail' && <ProductDetailV2 id={selectedProductId} setPage={navigate} addToCart={addToCart} buyNow={buyNow} />}

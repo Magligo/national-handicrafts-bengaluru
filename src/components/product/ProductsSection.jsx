@@ -79,7 +79,7 @@ function SlidersIcon() {
   return <svg aria-hidden="true" viewBox="0 0 18 18" width="16" height="16" fill="none"><path d="M3 5h12M3 13h12M7 3v4m4 4v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>;
 }
 
-export default function ProductsSection({ products, refresh, openProduct, addToCart, buyNow, catalogueState, catalogueError, searchQuery, setSearchQuery, filterOpen, setFilterOpen }) {
+export default function ProductsSection({ products, refresh, openProduct, addToCart, buyNow, catalogueState, catalogueError, searchQuery, setSearchQuery, filterOpen, setFilterOpen, categorySelection }) {
   const [filters, setFilters] = useState(defaultFilters);
   const [draftFilters, setDraftFilters] = useState(defaultFilters);
   const updateFilter = (key, value) => setFilters((current) => ({ ...current, [key]: value }));
@@ -87,6 +87,11 @@ export default function ProductsSection({ products, refresh, openProduct, addToC
   const clearFilters = () => setDraftFilters(defaultFilters);
   const applyFilters = () => { setFilters(draftFilters); setFilterOpen(false); };
   useEffect(() => { if (filterOpen) setDraftFilters(filters); }, [filterOpen]);
+  useEffect(() => {
+    if (!categorySelection?.category) return;
+    setFilters((current) => ({ ...current, category: categorySelection.category }));
+    setDraftFilters((current) => ({ ...current, category: categorySelection.category }));
+  }, [categorySelection]);
   useEffect(() => {
     if (!filterOpen) return undefined;
     const previousOverflow = document.body.style.overflow;

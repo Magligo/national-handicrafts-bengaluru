@@ -2160,6 +2160,11 @@ body.home-route{background-color:#FEF2DC;background-image:none;background-attach
 }
 @media(max-width:380px){.category-showcase-all{margin-top:-.25rem;}.category-showcase-all button{font-size:.76rem;}}
 
+/* Keep the four customer-facing homepage categories evenly aligned. */
+.category-grid .category-tile:nth-of-type(n){grid-column:span 3;margin-top:0;}
+@media(max-width:850px){.category-grid .category-tile:nth-of-type(n){grid-column:span 6;margin-top:0;}}
+@media(max-width:540px){.category-grid .category-tile:nth-of-type(n){grid-column:auto;}}
+
 
 /* Mobile navbar rows and concise visible brand name. */
 .site-header .brand b{white-space:nowrap;}

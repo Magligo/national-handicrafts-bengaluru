@@ -106,8 +106,8 @@ export default function GalleryPage() {
         <div className="gallery-comparison-after-clip" aria-hidden="true">
           <img src="/assets/gallery/mandir-after.webp" alt="" width="1536" height="1024" draggable="false" />
         </div>
-        <span className="gallery-comparison-label before">Before National</span>
-        <span className="gallery-comparison-label after">After National</span>
+        <span className="gallery-comparison-label before">Before</span>
+        <span className="gallery-comparison-label after">After</span>
         <span className="gallery-comparison-divider" aria-hidden="true">
           <span className="gallery-comparison-handle"><span>‹</span><span>›</span></span>
         </span>

@@ -8,7 +8,7 @@ import CategoryShowcase from './components/product/CategoryShowcase.jsx';
 import GalleryPage from './components/gallery/GalleryPage.jsx';
 import CatalogueProductCard from './components/product/ProductCard.jsx';
 import ScrollToTop from './ScrollToTop.jsx';
-import { CATEGORIES as categories, CATEGORY_IMAGES as categoryImages } from './constants/catalogue.js';
+import { CUSTOMER_CATEGORIES as categories, CATEGORY_IMAGES as categoryImages } from './constants/catalogue.js';
 import { api, authenticateAccount, formatPrice, imageUrl } from './services/api.js';
 import { cacheProducts, loadProducts, readCachedProducts } from './services/catalogue.js';
 import { animateProductToCart } from './services/cartAnimation.js';

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CATEGORIES } from '../../constants/catalogue.js';
+import { CUSTOMER_CATEGORIES } from '../../constants/catalogue.js';
 import { api } from '../../services/api.js';
 import ProductCard from './ProductCard.jsx';
 import { ErrorState } from '../common/StatusState.jsx';
@@ -67,7 +67,7 @@ function CatalogueSkeleton() {
 
 function FilterControls({ values, onChange }) {
   return <>
-    <label className="catalogue-filter"><span>Category</span><select aria-label="Filter by category" value={values.category} onChange={(event) => onChange('category', event.target.value)}><option value="">All categories</option>{CATEGORIES.map((item) => <option key={item}>{item}</option>)}</select></label>
+    <label className="catalogue-filter"><span>Category</span><select aria-label="Filter by category" value={values.category} onChange={(event) => onChange('category', event.target.value)}><option value="">All categories</option>{CUSTOMER_CATEGORIES.map((item) => <option key={item}>{item}</option>)}</select></label>
     <label className="catalogue-filter catalogue-price"><span>Price from</span><input aria-label="Minimum price" type="number" min="0" step="1" inputMode="numeric" placeholder="₹ Min" value={values.minPrice} onChange={(event) => onChange('minPrice', event.target.value)} /></label>
     <label className="catalogue-filter catalogue-price"><span>Price to</span><input aria-label="Maximum price" type="number" min="0" step="1" inputMode="numeric" placeholder="₹ Max" value={values.maxPrice} onChange={(event) => onChange('maxPrice', event.target.value)} /></label>
     <label className="catalogue-filter"><span>Availability</span><select aria-label="Filter by availability" value={values.availability} onChange={(event) => onChange('availability', event.target.value)}><option value="all">All products</option><option value="in-stock">In stock</option></select></label>

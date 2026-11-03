@@ -100,6 +100,30 @@ test('admin login accepts the configured environment credentials', async () => {
   }
 });
 
+test('environment admin password rotation invalidates existing sessions and permits a fresh login', async () => {
+  const previousEmail = process.env.ADMIN_EMAIL;
+  const previousHash = process.env.ADMIN_PASSWORD_HASH;
+  process.env.ADMIN_EMAIL = 'admin@example.com';
+  process.env.ADMIN_PASSWORD_HASH = await bcrypt.hash('environment-password', 10);
+  try {
+    const { app } = createApp({ repo: new MemoryRepository(), secret: 'test-secret' });
+    const firstLogin = await request(app).post('/api/auth/login').send({ email: 'admin@example.com', password: 'environment-password' });
+    assert.equal(firstLogin.status, 200);
+    const oldCookies = firstLogin.headers['set-cookie'];
+
+    // Simulates rotating ADMIN_PASSWORD_HASH during a deployment while an old cookie survives in another browser.
+    process.env.ADMIN_PASSWORD_HASH = await bcrypt.hash('new-environment-password', 10);
+    assert.equal((await request(app).get('/api/admin/products').set('Cookie', oldCookies)).status, 401);
+    assert.equal((await request(app).post('/api/auth/login').send({ email: 'admin@example.com', password: 'environment-password' })).status, 401);
+    const freshLogin = await request(app).post('/api/auth/login').send({ email: 'admin@example.com', password: 'new-environment-password' });
+    assert.equal(freshLogin.status, 200);
+    assert.equal((await request(app).get('/api/admin/products').set('Cookie', freshLogin.headers['set-cookie'])).status, 200);
+  } finally {
+    if (previousEmail === undefined) delete process.env.ADMIN_EMAIL; else process.env.ADMIN_EMAIL = previousEmail;
+    if (previousHash === undefined) delete process.env.ADMIN_PASSWORD_HASH; else process.env.ADMIN_PASSWORD_HASH = previousHash;
+  }
+});
+
 test('identifies the same database-first and environment fallback sources as admin login', async () => {
   const previousEmail = process.env.ADMIN_EMAIL;
   const previousHash = process.env.ADMIN_PASSWORD_HASH;
@@ -212,6 +236,7 @@ test('rejects expired admin sessions', async () => {
 test('admin password change verifies the current password, invalidates sessions, and accepts the new password', async () => {
   const { app, repo } = await setup();
   const auth = await signIn(app);
+  const secondBrowser = await signIn(app);
   const rejected = await adminRequest(app, auth, 'post', '/api/auth/password').send({ currentPassword: 'not-the-current-password', newPassword: 'newpass8' });
   assert.equal(rejected.status, 401);
   assert.equal((await request(app).get('/api/auth/me').set('Cookie', auth.cookie)).status, 200);
@@ -223,8 +248,25 @@ test('admin password change verifies the current password, invalidates sessions,
   assert.equal(repo.adminUsers[0].session_version, 1);
   assert.equal(await bcrypt.compare('newpass8', repo.adminUsers[0].password_hash), true);
   assert.equal((await request(app).get('/api/auth/me').set('Cookie', auth.cookie)).status, 401);
+  assert.equal((await request(app).get('/api/admin/products').set('Cookie', secondBrowser.cookie)).status, 401);
   assert.equal((await request(app).post('/api/auth/login').send({ email: 'admin@test.local', password: 'correct horse battery staple' })).status, 401);
   assert.equal((await request(app).post('/api/auth/login').send({ email: 'admin@test.local', password: 'newpass8' })).status, 200);
+});
+
+test('admin password rotation leaves customer sessions valid and never returns a session version', async () => {
+  const passwordHash = await bcrypt.hash('customer-password', 10);
+  const repo = new MemoryRepository({
+    adminUsers: [{ id: 'a1', email: 'admin@test.local', password_hash: await bcrypt.hash('correct horse battery staple', 10), role: 'admin' }],
+    customers: [{ id: 'c1', email: 'asha@example.com', password_hash: passwordHash, name: 'Asha Rao' }],
+  });
+  const { app } = createApp({ repo, secret: 'test-secret' });
+  const admin = await signIn(app);
+  const customer = await customerSignIn(app);
+  const loginBody = await request(app).post('/api/auth/login').send({ email: 'admin@test.local', password: 'correct horse battery staple' });
+  assert.equal(loginBody.body.data.sessionVersion, undefined);
+  const changed = await adminRequest(app, admin, 'post', '/api/auth/password').send({ currentPassword: 'correct horse battery staple', newPassword: 'newpass8' });
+  assert.equal(changed.status, 204);
+  assert.equal((await request(app).get('/api/customer/orders').set('Cookie', customer.cookie)).status, 200);
 });
 
 test('admin password change validates the new password before modifying the account', async () => {

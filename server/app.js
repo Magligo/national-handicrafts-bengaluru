@@ -144,7 +144,7 @@ export function createApp({ repo = createRepository(), secret = serverConfig.adm
     }
   });
   app.get('/api/products/:id', async (req, res, next) => { try { const p = await repo.getProduct(req.params.id); if (!p || !p.active || p.verification_status !== 'verified') return res.status(404).json({ error: 'Product not found' }); res.json({ data: publicProduct(p) }); } catch (e) { next(e); } });
-  app.post('/api/auth/login', adminLoginRateLimit, async (req, res, next) => { try { const user = await authenticate(req.body?.email || '', req.body?.password || '', repo); if (!user || user.role !== 'admin') return res.status(401).json({ error: 'Invalid admin credentials' }); setSession(res, user, sessionSecret); res.json({ data: user }); } catch (e) { next(e); } });
+  app.post('/api/auth/login', adminLoginRateLimit, async (req, res, next) => { try { const user = await authenticate(req.body?.email || '', req.body?.password || '', repo); if (!user || user.role !== 'admin') return res.status(401).json({ error: 'Invalid admin credentials' }); setSession(res, user, sessionSecret); const { id, email, role } = user; res.json({ data: { id, email, role } }); } catch (e) { next(e); } });
   const admin = requireAdmin(sessionSecret, repo);
   const adminMutation = requireAdmin(sessionSecret, repo, { csrf: true });
   app.post('/api/auth/logout', adminMutation, (_req, res) => { clearSession(res); res.status(204).end(); });

@@ -6,6 +6,7 @@ import { createApp, validateGoogleIdentity } from './app.js';
 import { adminAuthenticationSource } from './auth.js';
 import { MemoryRepository } from './repository.js';
 import { cloudinaryConfigurationError } from './storage/cloudinary.js';
+import { invalidateVercelCatalogueCache } from './catalogueCache.js';
 
 async function setup(role = 'admin', imageUploader = async (file) => ({ url: `test-upload://${file.originalname}` })) {
   const repo = new MemoryRepository({ adminUsers: [{ id: 'a1', email: 'admin@test.local', password_hash: await bcrypt.hash('correct horse battery staple', 10), role }] });
@@ -299,6 +300,30 @@ test('admin can add a verified product and it becomes public', async () => {
   assert.equal(created.status, 201);
   const products = await request(app).get('/api/products');
   assert.equal(products.body.data[0].name, 'Test Bell');
+  assert.match(products.headers['cache-control'], /max-age=0.*s-maxage=60.*stale-while-revalidate=86400/);
+  assert.equal(products.headers['vercel-cache-tag'], 'public-catalogue');
+  assert.equal(products.headers['vercel-cdn-cache-control'], 'public, s-maxage=60, stale-while-revalidate=86400, stale-if-error=86400');
+});
+
+test('Vercel catalogue cache invalidation uses the configured production project and public tag', async () => {
+  let captured;
+  const invalidated = await invalidateVercelCatalogueCache({
+    env: { VERCEL_TOKEN: 'test-token', VERCEL_PROJECT_ID: 'prj_catalogue', VERCEL_TEAM_ID: 'team_store' },
+    fetchImpl: async (url, options) => { captured = { url, options }; return { ok: true }; },
+    logger: { info() {}, warn() {} },
+  });
+  assert.equal(invalidated, true);
+  assert.match(captured.url, /projectIdOrName=prj_catalogue/);
+  assert.match(captured.url, /teamId=team_store/);
+  assert.equal(captured.options.headers.Authorization, 'Bearer test-token');
+  assert.deepEqual(JSON.parse(captured.options.body), { tags: ['public-catalogue'], target: 'production' });
+});
+
+test('Vercel cache invalidation safely falls back when credentials are not configured', async () => {
+  let called = false;
+  const invalidated = await invalidateVercelCatalogueCache({ env: {}, fetchImpl: async () => { called = true; }, logger: { info() {}, warn() {} } });
+  assert.equal(invalidated, false);
+  assert.equal(called, false);
 });
 
 test('JSON API responses preserve Unicode product and customer names as UTF-8', async () => {

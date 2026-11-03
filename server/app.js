@@ -8,6 +8,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { authenticate, authenticateCustomer, clearSession, clearCustomerSession, getCsrfToken, getCustomerCsrfToken, setSession, setCustomerSession, requireAdmin, requireCustomer, optionalCustomer } from './auth.js';
 import { createRepository } from './repository.js';
+import { invalidateVercelCatalogueCache } from './catalogueCache.js';
 import { productInput, validateOrder, customerRegistrationInput, customerProfileInput, addressInput, adminPasswordChangeInput, orderStatuses, validateCustomerPassword } from './validation.js';
 import { getConfiguredFrontendOrigins, paymentConfig, serverConfig } from './config/env.js';
 import { createRateLimit } from './middleware/rateLimit.js';
@@ -69,15 +70,14 @@ export function createApp({ repo = createRepository(), secret = serverConfig.adm
   const sessionSecret = secret || 'local-only-change-me';
   const customerSessionSecret = process.env.CUSTOMER_SESSION_SECRET || sessionSecret;
   const app = express();
-  const publicCatalogueCache = new Map();
-  const invalidatePublicCatalogue = () => publicCatalogueCache.clear();
+  const invalidatePublicCatalogue = () => { void invalidateVercelCatalogueCache(); };
   app.use((req, res, next) => {
     const supplied = req.get('X-Request-ID');
     req.requestId = supplied && /^[\w.-]{1,100}$/.test(supplied) ? supplied : createHash('sha1').update(`${Date.now()}-${Math.random()}`).digest('hex').slice(0, 16);
     const startedAt = process.hrtime.bigint();
     res.set('X-Request-ID', req.requestId);
     res.on('finish', () => {
-      if (req.path === '/api/products') console.info('[request] Catalogue response', { requestId: req.requestId, status: res.statusCode, durationMs: Number(process.hrtime.bigint() - startedAt) / 1e6 });
+      if (req.path === '/api/products') console.info('[request] Catalogue response', { requestId: req.requestId, status: res.statusCode, durationMs: Number(process.hrtime.bigint() - startedAt) / 1e6, responseBytes: Number(res.get('Content-Length') || 0) });
     });
     next();
   });
@@ -121,19 +121,17 @@ export function createApp({ repo = createRepository(), secret = serverConfig.adm
   app.get('/api/products', async (req, res, next) => {
     const startedAt = Date.now();
     try {
-      // Admin edits must be visible promptly; use the short-lived browser snapshot
-      // instead of an edge cache that cannot be invalidated across all instances.
-      res.set('Cache-Control', 'public, max-age=0, must-revalidate');
+      // This endpoint is public and contains only active, verified products. Vercel
+      // caches it globally; browsers revalidate while stale CDN entries can be
+      // served immediately as the backend refreshes them in the background.
+      res.set({
+        'Cache-Control': 'public, max-age=0, s-maxage=60, stale-while-revalidate=86400, stale-if-error=86400',
+        'CDN-Cache-Control': 'public, s-maxage=60, stale-while-revalidate=86400, stale-if-error=86400',
+        'Vercel-CDN-Cache-Control': 'public, s-maxage=60, stale-while-revalidate=86400, stale-if-error=86400',
+        'Vercel-Cache-Tag': 'public-catalogue',
+      });
       const query = { q: req.query.q || '', category: req.query.category || '' };
-      const cacheKey = JSON.stringify(query);
-      const cached = publicCatalogueCache.get(cacheKey);
-      const products = cached && cached.expiresAt > Date.now()
-        ? cached.products
-        : (await repo.listProducts({ ...query, requestId: req.requestId })).map(publicProduct);
-      if (!cached || cached.expiresAt <= Date.now()) {
-        if (publicCatalogueCache.size >= 100) publicCatalogueCache.clear();
-        publicCatalogueCache.set(cacheKey, { products, expiresAt: Date.now() + 5000 });
-      }
+      const products = (await repo.listProducts({ ...query, requestId: req.requestId })).map(publicProduct);
       const durationMs = Date.now() - startedAt;
       if (durationMs >= 1000) console.info('[catalogue] Product list completed slowly', { requestId: req.requestId, durationMs, count: products.length });
       res.json({ data: products });

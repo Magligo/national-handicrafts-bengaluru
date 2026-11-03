@@ -42,6 +42,10 @@ The frontend calls `VITE_API_URL` with `credentials: 'include'`. By default this
 
 In production, the storefront uses the same-origin `/api` path so customer and administrator cookies remain first-party. `vercel.json` rewrites that path to the Render API service. Keep the rewrite destination aligned with the deployed backend URL; `VITE_API_URL` is for local development and is intentionally not used by production builds.
 
+The public `GET /api/products` response contains only active, verified catalogue records. Vercel rewrite caching shares it across visitors for 60 seconds and serves stale data while refreshing in the background for up to a day (or during an origin error). Product create, edit, delete, publish, and unpublish operations invalidate the `public-catalogue` edge tag. To enable immediate tag invalidation, configure `VERCEL_TOKEN` (a project-scoped token with cache invalidation access), `VERCEL_PROJECT_ID`, and, for a team-owned project, `VERCEL_TEAM_ID` on Render. Without those values, the CDN still refreshes stale entries automatically, but an admin update may take up to the 60-second fresh period to appear. The browser cache remains a short-lived convenience; first visits on new devices use the shared Vercel cache.
+
+Catalogue timings are logged with the request ID at the browser request/JSON parse/render stages, the Express response stage, PostgreSQL pool acquisition, and SQL execution. Vercel's `x-vercel-cache` response header and external-origin observability distinguish edge hits from backend requests. Use those production signals with Render logs to separate CDN, Render wake-up/startup, PostgreSQL connection, query, transfer, and rendering time.
+
 ## Environment configuration
 
 Copy the safe template:

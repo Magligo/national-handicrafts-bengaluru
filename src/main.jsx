@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import QRCode from 'qrcode';
 import './styles.css';
@@ -73,7 +73,7 @@ function App() {
   const [profileNavigationError, setProfileNavigationError] = useState('');
   const profileNavigationInFlight = useRef(false);
   const { cart, addToCart: addCartItem, setQuantity, removeFromCart, clearCart, reconcile } = useCart();
-  useEffect(() => { document.body.classList.toggle('admin-route', page === 'admin'); document.body.classList.toggle('home-route', page === 'home'); return () => { document.body.classList.remove('admin-route'); document.body.classList.remove('home-route'); }; }, [page]);
+  useLayoutEffect(() => { document.body.classList.toggle('admin-route', page === 'admin'); document.body.classList.toggle('home-route', page === 'home'); return () => { document.body.classList.remove('admin-route'); document.body.classList.remove('home-route'); }; }, [page]);
   const addToCart = (product, trigger) => {
     if (!productPurchaseState(product, product.variant).canPurchase) return false;
     const existingQuantity = cart.find((item) => cartItemKey(item) === cartItemKey(product))?.quantity || 0;
@@ -110,11 +110,11 @@ function App() {
     console.info('[catalogue] Product render committed', { requestId: catalogueRenderRequestIdRef.current, durationMs, count: products.length });
     catalogueRenderStartRef.current = null;
   }, [products]);
-  useEffect(() => { refresh(); const onPopState = (event) => { const nextParams = new URLSearchParams(location.search); const nextPage = location.pathname === '/gallery' ? 'gallery' : location.pathname === '/profile' ? 'profile' : location.pathname === '/admin' || nextParams.get('admin') === '1' ? 'admin' : nextParams.get('product') ? 'detail' : ['password-reset', 'password-recovery'].includes(nextParams.get('page')) ? 'password-recovery' : nextParams.get('page') || (['about', 'products'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'home'); const position = Number.isInteger(event.state?.nhPosition) ? event.state.nhPosition : 0; setHistoryPosition(position); setHistoryForwardLimit((limit) => Math.max(limit, position)); setSelectedProductId(nextParams.get('product')); setPage(nextPage); setNavigationKey((key) => key + 1); }; addEventListener('popstate', onPopState); return () => removeEventListener('popstate', onPopState); }, []);
+  useEffect(() => { refresh(); history.scrollRestoration = 'manual'; const onPopState = (event) => { const nextParams = new URLSearchParams(location.search); const nextPage = location.pathname === '/gallery' ? 'gallery' : location.pathname === '/profile' ? 'profile' : location.pathname === '/admin' || nextParams.get('admin') === '1' ? 'admin' : nextParams.get('product') ? 'detail' : ['password-reset', 'password-recovery'].includes(nextParams.get('page')) ? 'password-recovery' : nextParams.get('page') || (['about', 'products'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'home'); const position = Number.isInteger(event.state?.nhPosition) ? event.state.nhPosition : 0; setHistoryPosition(position); setHistoryForwardLimit((limit) => Math.max(limit, position)); setSelectedProductId(nextParams.get('product')); if (nextPage === 'home') { setHomepageCategorySelection((current) => ({ category: '', revision: current.revision + 1 })); setSearchQuery(''); setCatalogueFiltersOpen(false); } setPage(nextPage); setNavigationKey((key) => key + 1); }; addEventListener('popstate', onPopState); return () => removeEventListener('popstate', onPopState); }, []);
   // The splash is brand polish, not an API gate: data may still be loading underneath it.
   useEffect(() => { const timer = setTimeout(() => setShowSplash(false), 700); return () => clearTimeout(timer); }, []);
   useEffect(() => { if (catalogueState !== 'loading') setShowSplash(false); }, [catalogueState]);
-  const navigate = (nextPage) => { const landingPage = ['home', 'products'].includes(nextPage); const position = historyPosition + 1; setHistoryPosition(position); setHistoryForwardLimit(position); setPage(nextPage); setNavigationKey((key) => key + 1); if (nextPage !== 'detail') setSelectedProductId(null); if (nextPage !== 'profile') setProfileEntry(null); if (nextPage !== 'admin') setVerifiedAdminEntry(null); const url = nextPage === 'gallery' ? '/gallery' : landingPage ? (nextPage === 'home' ? '/' : '/#products') : nextPage === 'profile' ? '/profile' : nextPage === 'admin' ? '/admin' : `/?page=${nextPage}`; history.pushState({ nhPosition: position }, '', url); };
+  const navigate = (nextPage) => { const landingPage = ['home', 'products'].includes(nextPage); const position = historyPosition + 1; setHistoryPosition(position); setHistoryForwardLimit(position); if (nextPage === 'home') { setHomepageCategorySelection((current) => ({ category: '', revision: current.revision + 1 })); setSearchQuery(''); setCatalogueFiltersOpen(false); } setPage(nextPage); setNavigationKey((key) => key + 1); if (nextPage !== 'detail') setSelectedProductId(null); if (nextPage !== 'profile') setProfileEntry(null); if (nextPage !== 'admin') setVerifiedAdminEntry(null); const url = nextPage === 'gallery' ? '/gallery' : landingPage ? (nextPage === 'home' ? '/' : '/#products') : nextPage === 'profile' ? '/profile' : nextPage === 'admin' ? '/admin' : `/?page=${nextPage}`; history.pushState({ nhPosition: position }, '', url); };
   const openProfile = async () => {
     if (profileNavigationInFlight.current) return;
     profileNavigationInFlight.current = true;
@@ -138,7 +138,7 @@ function App() {
       setProfileNavigationBusy(false);
     }
   };
-  const openProduct = (id) => { const position = historyPosition + 1; setHistoryPosition(position); setHistoryForwardLimit(position); setSelectedProductId(id); setPage('detail'); history.pushState({ nhPosition: position }, '', `/?product=${encodeURIComponent(id)}`); };
+  const openProduct = (id) => { const position = historyPosition + 1; setHistoryPosition(position); setHistoryForwardLimit(position); setHomepageCategorySelection((current) => ({ category: '', revision: current.revision + 1 })); setSelectedProductId(id); setPage('detail'); history.pushState({ nhPosition: position }, '', `/?product=${encodeURIComponent(id)}`); };
   const requireCheckout = async (items, { fromCart = false } = {}) => { setCheckoutItems(items); setCheckoutFromCart(fromCart); try { await api('/customer/auth/me'); setCheckoutSessionVerified(true); navigate('checkout'); } catch { setCheckoutSessionVerified(false); setSkipNextCustomerSessionCheck(true); setProfileEntry(null); sessionStorage.setItem('nh_return_to_checkout', '1'); navigate('profile'); } };
   const buyNow = (product) => requireCheckout([{ id: product.id, name: product.name, category: product.category, price_inr: product.price_inr, stock: product.stock, image_path: product.image_path || null, variantId: product.variantId || null, variant: product.variant || null, quantity: 1 }]);
   const checkoutCart = () => { const unavailable = cart.find((item) => !productPurchaseState(item, item.variant).canPurchase); if (unavailable) { window.alert(`${unavailable.name} is no longer available to purchase. Remove it or choose another option.`); return; } return requireCheckout(cart, { fromCart: true }); };

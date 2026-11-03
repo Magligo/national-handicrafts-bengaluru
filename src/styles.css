@@ -2142,6 +2142,10 @@ body.home-route{background-color:#FEF2DC;background-image:none;background-attach
 .category-showcase-all{display:flex;justify-content:flex-end;margin:-.45rem 0 .5rem;}
 .category-showcase-all button{padding:.45rem .8rem;border:1px solid rgba(59,40,29,.3);border-radius:2px;color:var(--muted);font-size:.8rem;font-weight:650;}
 .category-showcase-all button:hover,.category-showcase-all button.active{border-color:var(--terracotta);color:var(--terracotta);}
+/* Keep the complete public homepage on its original warm canvas across route changes. */
+body.home-route{background-color:#FEF2DC;background-image:none;background-attachment:initial;}
+body.home-route #root,body.home-route main{background-color:#FEF2DC;}
+body.home-route .shop-banner-wrap,body.home-route .shop-banner,body.home-route .category-showcase.section,body.home-route .scroll-section,body.home-route .products-page{background-color:#FEF2DC;}
 .header-history{display:flex;align-items:center;gap:.15rem;}
 .header-history button{display:grid;place-items:center;width:34px;height:36px;padding:0;border:1px solid transparent;border-radius:50%;color:var(--ink);}
 .header-history button:hover:not(:disabled){border-color:var(--line);color:var(--terracotta);}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../services/api.js';
 
 const filters = [['all', 'All'], ['photo', 'Photos'], ['video', 'Videos'], ['link', 'Links']];
@@ -12,6 +12,9 @@ export default function GalleryPage() {
   const [state, setState] = useState('loading');
   const [filter, setFilter] = useState('all');
   const [activeId, setActiveId] = useState('');
+  const comparisonRef = useRef(null);
+  const comparisonPosition = useRef(50);
+  const comparisonDragging = useRef(false);
   const loadGallery = useCallback(async () => { setState('loading'); try { const result = await api('/gallery'); setItems(Array.isArray(result?.data) ? result.data : []); setState('ready'); } catch { setState('error'); } }, []);
   useEffect(() => { loadGallery(); }, [loadGallery]);
   const visibleItems = useMemo(() => items.filter((item) => filter === 'all' || itemType(item) === filter), [items, filter]);
@@ -27,6 +30,44 @@ export default function GalleryPage() {
   const movePhoto = (direction) => { const index = photoItems.findIndex((item) => item.id === active?.id); if (photoItems.length) setActiveId(photoItems[(index + direction + photoItems.length) % photoItems.length].id); };
   const close = () => setActiveId('');
   const closeOnBackdrop = (event) => { if (event.target === event.currentTarget) close(); };
+  const setComparisonPosition = (next) => {
+    const value = Math.max(0, Math.min(100, next));
+    comparisonPosition.current = value;
+    const slider = comparisonRef.current;
+    if (!slider) return;
+    slider.style.setProperty('--comparison-position', `${value}%`);
+    slider.setAttribute('aria-valuenow', String(Math.round(value)));
+    slider.setAttribute('aria-valuetext', `${Math.round(value)}% after image visible`);
+  };
+  const updateComparisonFromPointer = (event) => {
+    const slider = comparisonRef.current;
+    if (!slider) return;
+    const bounds = slider.getBoundingClientRect();
+    setComparisonPosition(((event.clientX - bounds.left) / bounds.width) * 100);
+  };
+  const startComparisonDrag = (event) => {
+    if (event.button !== undefined && event.button !== 0) return;
+    comparisonDragging.current = true;
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    updateComparisonFromPointer(event);
+  };
+  const moveComparisonDrag = (event) => {
+    if (comparisonDragging.current) updateComparisonFromPointer(event);
+  };
+  const endComparisonDrag = () => { comparisonDragging.current = false; };
+  const handleComparisonKeyDown = (event) => {
+    const steps = { ArrowLeft: -2, ArrowRight: 2, ArrowUp: 2, ArrowDown: -2 };
+    if (event.key in steps) {
+      event.preventDefault();
+      setComparisonPosition(comparisonPosition.current + steps[event.key]);
+    } else if (event.key === 'Home') {
+      event.preventDefault();
+      setComparisonPosition(0);
+    } else if (event.key === 'End') {
+      event.preventDefault();
+      setComparisonPosition(100);
+    }
+  };
   const renderCard = (item) => {
     const type = itemType(item); const thumb = item.thumbnail_url || item.image_url || item.media_url;
     const copy = <span className="gallery-card-copy"><span className="gallery-card-category">{item.category}</span><strong>{item.title}</strong>{item.description && <span className="gallery-card-description">{item.description}</span>}</span>;
@@ -39,6 +80,39 @@ export default function GalleryPage() {
   };
   return <section className="section gallery-page" aria-labelledby="gallery-title">
     <header className="gallery-heading"><p className="eyebrow">A CLOSER LOOK</p><h1 id="gallery-title">The gallery.</h1><p className="lede">Objects, materials, and details from the National Handicrafts collection.</p></header>
+    <section className="gallery-comparison" aria-labelledby="gallery-comparison-title">
+      <header className="gallery-comparison-heading">
+        <h2 id="gallery-comparison-title">See the Transformation</h2>
+        <p>Discover how our handcrafted products transform your sacred space.</p>
+      </header>
+      <div
+        className="gallery-comparison-slider"
+        ref={comparisonRef}
+        role="slider"
+        tabIndex={0}
+        aria-label="Before and after comparison"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={50}
+        aria-valuetext={`${Math.round(comparisonPosition.current)}% after image visible`}
+        onPointerDown={startComparisonDrag}
+        onPointerMove={moveComparisonDrag}
+        onPointerUp={endComparisonDrag}
+        onPointerCancel={endComparisonDrag}
+        onLostPointerCapture={endComparisonDrag}
+        onKeyDown={handleComparisonKeyDown}
+      >
+        <img className="gallery-comparison-before" src="/assets/gallery/mandir-before.webp" alt="Sacred mandir space before its National transformation" width="1536" height="1024" draggable="false" />
+        <div className="gallery-comparison-after-clip" aria-hidden="true">
+          <img src="/assets/gallery/mandir-after.webp" alt="" width="1536" height="1024" draggable="false" />
+        </div>
+        <span className="gallery-comparison-label before">Before National</span>
+        <span className="gallery-comparison-label after">After National</span>
+        <span className="gallery-comparison-divider" aria-hidden="true">
+          <span className="gallery-comparison-handle"><span>‹</span><span>›</span></span>
+        </span>
+      </div>
+    </section>
     <div className="gallery-filter-tabs" role="tablist" aria-label="Filter gallery media">{filters.map(([value, label]) => <button key={value} type="button" role="tab" aria-selected={filter === value} className={filter === value ? 'active' : ''} onClick={() => { setFilter(value); close(); }}>{label}</button>)}</div>
     {state === 'loading' && <div className="gallery-message" role="status">Gathering the collection…</div>}
     {state === 'error' && <div className="gallery-empty" role="alert"><p>The gallery could not be loaded just now.</p><button type="button" className="button secondary" onClick={loadGallery}>Try again</button></div>}

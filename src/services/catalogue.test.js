@@ -12,13 +12,13 @@ test('uses a versioned public catalogue snapshot for up to seven days', () => {
   assert.equal(readCachedProducts(storage, 1001 + 7 * 24 * 60 * 60 * 1000), null);
 });
 
-test('retries transient catalogue failures and preserves the longer request timeout', async () => {
+test('retries transient catalogue failures with a short bounded timeout and backoff', async () => {
   let calls = 0;
   const pauses = [];
   const response = await loadProducts({
     request: async (_path, options) => {
       calls += 1;
-      assert.equal(options.timeout, 30000);
+      assert.equal(options.timeout, 3500);
       if (calls < 3) throw Object.assign(new Error('temporary failure'), { status: 503 });
       return { data: [{ id: 'verified-product' }] };
     },
@@ -26,7 +26,7 @@ test('retries transient catalogue failures and preserves the longer request time
   });
 
   assert.equal(calls, 3);
-  assert.deepEqual(pauses, [1200, 3000]);
+  assert.deepEqual(pauses, [350, 700]);
   assert.equal(response.data[0].id, 'verified-product');
 });
 

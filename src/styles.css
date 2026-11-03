@@ -2035,7 +2035,7 @@ body.admin-route .mobile-bottom-navigation{display:none!important;}
 .gallery-comparison-heading{margin:0 0 1.5rem}
 .gallery-comparison-heading h2{margin:0 0 .55rem;font-size:clamp(2rem,4vw,3.3rem)}
 .gallery-comparison-heading p{max-width:600px;margin:0;color:var(--muted);font-size:1rem;line-height:1.65}
-.gallery-comparison-slider{--comparison-position:50%;position:relative;width:100%;aspect-ratio:3/2;overflow:hidden;border-radius:18px;background:#e5d8c5;isolation:isolate;touch-action:none;cursor:ew-resize;user-select:none;-webkit-user-select:none}
+.gallery-comparison-slider{--comparison-position:50%;position:relative;width:100%;aspect-ratio:3/2;overflow:hidden;border-radius:18px;background:#e5d8c5;isolation:isolate;touch-action:pan-y;cursor:ew-resize;user-select:none;-webkit-user-select:none}
 .gallery-comparison-slider:focus-visible{outline:3px solid var(--terracotta);outline-offset:5px}
 .gallery-comparison-slider img{display:block;width:100%;height:100%;max-width:none;object-fit:cover;object-position:center;pointer-events:none;user-select:none;-webkit-user-drag:none}
 .gallery-comparison-before{position:absolute;inset:0}

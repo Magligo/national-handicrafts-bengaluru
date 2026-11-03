@@ -3,10 +3,10 @@ import SafeImage from '../common/SafeImage.jsx';
 import { CUSTOMER_CATEGORIES } from '../../constants/catalogue.js';
 
 const CATEGORY_SHOWCASE_IMAGES = {
-  Brass: { src: '/assets/categories/brass-products.webp', fallback: '/assets/categories/brass-products.webp.png' },
-  'Decorative Handicrafts': { src: '/assets/categories/decorative-handicrafts.webp', fallback: '/assets/categories/decorative-handicrafts.webp.png' },
-  'Dining & Thali Sets': { src: '/assets/categories/dinner-thali-sets.webp', fallback: '/assets/categories/dinner-thali-sets.webp.png' },
-  'Puja Articles': { src: '/assets/categories/puja-articles.webp', fallback: '/assets/categories/puja-articles.webp.png' },
+  Brass: '/assets/categories/brass-products.webp.png',
+  'Decorative Handicrafts': '/assets/categories/decorative-handicrafts.webp.png',
+  'Dining & Thali Sets': '/assets/categories/dinner-thali-sets.webp.png',
+  'Puja Articles': '/assets/categories/puja-articles.webp.png',
 };
 
 export default function CategoryShowcase({ products, selectedCategory = '', onSelectCategory }) {
@@ -18,10 +18,10 @@ export default function CategoryShowcase({ products, selectedCategory = '', onSe
         <h2 id="category-showcase-title">Shop By Category</h2>
       </header>
       <div className="category-showcase-track" ref={trackRef} role="group" aria-label="Handicraft product categories" tabIndex={0}>
-        {CUSTOMER_CATEGORIES.map((category) => {
+        {CUSTOMER_CATEGORIES.map((category, index) => {
           const image = CATEGORY_SHOWCASE_IMAGES[category];
           return <button className={`category-showcase-item${selectedCategory === category ? ' active' : ''}`} type="button" key={category} aria-pressed={selectedCategory === category} onClick={() => onSelectCategory(category)}>
-            <span className="category-showcase-image"><SafeImage src={image.src} fallbackSrc={image.fallback} alt={`${category} handicrafts`} /></span>
+            <span className="category-showcase-image"><SafeImage src={image} alt={`${category} handicrafts`} loading={index === 0 ? 'eager' : 'lazy'} fetchPriority={index === 0 ? 'high' : 'auto'} width={320} height={400} /></span>
             <span className="category-showcase-name">{category}</span>
           </button>;
         })}

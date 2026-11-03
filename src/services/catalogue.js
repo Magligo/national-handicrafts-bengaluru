@@ -1,7 +1,9 @@
 import { api } from './api.js';
 
-const requestTimeoutMs = 30000;
-const retryDelaysMs = [1200, 3000];
+// Keep the first-visit wait bounded, including cold starts and failed attempts.
+// Three 3.5s attempts plus these short backoffs stay under 12 seconds.
+const requestTimeoutMs = 3500;
+const retryDelaysMs = [350, 700];
 const cacheKey = 'national-handicrafts-public-catalogue-v1';
 // Keep a local snapshot available across visits. It is rendered immediately and
 // refreshed from the shared Vercel cache in the background on every page load.

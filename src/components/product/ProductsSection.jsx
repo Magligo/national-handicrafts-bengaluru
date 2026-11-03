@@ -106,10 +106,6 @@ export default function ProductsSection({ products, refresh, openProduct, addToC
 
   const closeFilters = () => { setDraftFilters(filters); setFilterOpen(false); };
   return <section className="section products-page">
-    <header className="catalogue-heading" aria-labelledby="catalogue-title">
-      <h1 id="catalogue-title">The collection.</h1>
-      <p>Browse brass, copper, puja articles, dining &amp; thali sets, and decorative handicrafts.</p>
-    </header>
     <div className="catalogue-toolbar" aria-label="Product filters">
     </div>
     <div className="catalogue-results-bar"><p>{catalogueState === 'loading' ? 'Loading verified products…' : catalogueState === 'error' ? 'Catalogue temporarily unavailable' : invalidRange ? 'Choose a maximum price greater than the minimum.' : `Showing ${filtered.length} product${filtered.length === 1 ? '' : 's'}`}</p><button type="button" className={`catalogue-filter-trigger${activeFilterCount ? ' has-filters' : ''}`} aria-expanded={filterOpen} aria-controls="catalogue-filter-sheet" onClick={() => setFilterOpen(true)}><SlidersIcon /><span>Filter</span>{activeFilterCount > 0 && <small>{activeFilterCount}</small>}</button></div>

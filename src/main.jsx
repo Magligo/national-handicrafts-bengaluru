@@ -50,6 +50,8 @@ function App() {
   const initialSection = ['about', 'products'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'home';
   const [page, setPage] = useState(location.pathname === '/gallery' ? 'gallery' : location.pathname === '/profile' ? 'profile' : location.pathname === '/admin' || params.get('admin') === '1' ? 'admin' : params.get('product') ? 'detail' : ['password-reset', 'password-recovery'].includes(params.get('page')) ? 'password-recovery' : params.get('page') || initialSection);
   const [navigationKey, setNavigationKey] = useState(0);
+  const [historyPosition, setHistoryPosition] = useState(() => Number.isInteger(history.state?.nhPosition) ? history.state.nhPosition : 0);
+  const [historyForwardLimit, setHistoryForwardLimit] = useState(() => Number.isInteger(history.state?.nhPosition) ? history.state.nhPosition : 0);
   const [selectedProductId, setSelectedProductId] = useState(params.get('product'));
   const [checkoutItems, setCheckoutItems] = useState([]);
   const [checkoutFromCart, setCheckoutFromCart] = useState(false);
@@ -71,7 +73,7 @@ function App() {
   const [profileNavigationError, setProfileNavigationError] = useState('');
   const profileNavigationInFlight = useRef(false);
   const { cart, addToCart: addCartItem, setQuantity, removeFromCart, clearCart, reconcile } = useCart();
-  useEffect(() => { document.body.classList.toggle('admin-route', page === 'admin'); return () => document.body.classList.remove('admin-route'); }, [page]);
+  useEffect(() => { document.body.classList.toggle('admin-route', page === 'admin'); document.body.classList.toggle('home-route', page === 'home'); return () => { document.body.classList.remove('admin-route'); document.body.classList.remove('home-route'); }; }, [page]);
   const addToCart = (product, trigger) => {
     if (!productPurchaseState(product, product.variant).canPurchase) return false;
     const existingQuantity = cart.find((item) => cartItemKey(item) === cartItemKey(product))?.quantity || 0;
@@ -108,11 +110,11 @@ function App() {
     console.info('[catalogue] Product render committed', { requestId: catalogueRenderRequestIdRef.current, durationMs, count: products.length });
     catalogueRenderStartRef.current = null;
   }, [products]);
-  useEffect(() => { refresh(); const onPopState = () => { const nextParams = new URLSearchParams(location.search); const nextPage = location.pathname === '/gallery' ? 'gallery' : location.pathname === '/profile' ? 'profile' : location.pathname === '/admin' || nextParams.get('admin') === '1' ? 'admin' : nextParams.get('product') ? 'detail' : ['password-reset', 'password-recovery'].includes(nextParams.get('page')) ? 'password-recovery' : nextParams.get('page') || (['about', 'products'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'home'); setSelectedProductId(nextParams.get('product')); setPage(nextPage); setNavigationKey((key) => key + 1); }; addEventListener('popstate', onPopState); return () => removeEventListener('popstate', onPopState); }, []);
+  useEffect(() => { refresh(); const onPopState = (event) => { const nextParams = new URLSearchParams(location.search); const nextPage = location.pathname === '/gallery' ? 'gallery' : location.pathname === '/profile' ? 'profile' : location.pathname === '/admin' || nextParams.get('admin') === '1' ? 'admin' : nextParams.get('product') ? 'detail' : ['password-reset', 'password-recovery'].includes(nextParams.get('page')) ? 'password-recovery' : nextParams.get('page') || (['about', 'products'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'home'); const position = Number.isInteger(event.state?.nhPosition) ? event.state.nhPosition : 0; setHistoryPosition(position); setHistoryForwardLimit((limit) => Math.max(limit, position)); setSelectedProductId(nextParams.get('product')); setPage(nextPage); setNavigationKey((key) => key + 1); }; addEventListener('popstate', onPopState); return () => removeEventListener('popstate', onPopState); }, []);
   // The splash is brand polish, not an API gate: data may still be loading underneath it.
   useEffect(() => { const timer = setTimeout(() => setShowSplash(false), 700); return () => clearTimeout(timer); }, []);
   useEffect(() => { if (catalogueState !== 'loading') setShowSplash(false); }, [catalogueState]);
-  const navigate = (nextPage) => { const landingPage = ['home', 'products'].includes(nextPage); setPage(nextPage); setNavigationKey((key) => key + 1); if (nextPage !== 'detail') setSelectedProductId(null); if (nextPage !== 'profile') setProfileEntry(null); if (nextPage !== 'admin') setVerifiedAdminEntry(null); if (nextPage === 'gallery') history.pushState({}, '', '/gallery'); else if (landingPage) history.pushState({}, '', nextPage === 'home' ? '/' : '/#products'); else if (nextPage === 'profile') history.pushState({}, '', '/profile'); else if (nextPage === 'admin') history.pushState({}, '', '/admin'); else history.pushState({}, '', `/?page=${nextPage}`); };
+  const navigate = (nextPage) => { const landingPage = ['home', 'products'].includes(nextPage); const position = historyPosition + 1; setHistoryPosition(position); setHistoryForwardLimit(position); setPage(nextPage); setNavigationKey((key) => key + 1); if (nextPage !== 'detail') setSelectedProductId(null); if (nextPage !== 'profile') setProfileEntry(null); if (nextPage !== 'admin') setVerifiedAdminEntry(null); const url = nextPage === 'gallery' ? '/gallery' : landingPage ? (nextPage === 'home' ? '/' : '/#products') : nextPage === 'profile' ? '/profile' : nextPage === 'admin' ? '/admin' : `/?page=${nextPage}`; history.pushState({ nhPosition: position }, '', url); };
   const openProfile = async () => {
     if (profileNavigationInFlight.current) return;
     profileNavigationInFlight.current = true;
@@ -136,7 +138,7 @@ function App() {
       setProfileNavigationBusy(false);
     }
   };
-  const openProduct = (id) => { setSelectedProductId(id); setPage('detail'); history.pushState({}, '', `/?product=${encodeURIComponent(id)}`); };
+  const openProduct = (id) => { const position = historyPosition + 1; setHistoryPosition(position); setHistoryForwardLimit(position); setSelectedProductId(id); setPage('detail'); history.pushState({ nhPosition: position }, '', `/?product=${encodeURIComponent(id)}`); };
   const requireCheckout = async (items, { fromCart = false } = {}) => { setCheckoutItems(items); setCheckoutFromCart(fromCart); try { await api('/customer/auth/me'); setCheckoutSessionVerified(true); navigate('checkout'); } catch { setCheckoutSessionVerified(false); setSkipNextCustomerSessionCheck(true); setProfileEntry(null); sessionStorage.setItem('nh_return_to_checkout', '1'); navigate('profile'); } };
   const buyNow = (product) => requireCheckout([{ id: product.id, name: product.name, category: product.category, price_inr: product.price_inr, stock: product.stock, image_path: product.image_path || null, variantId: product.variantId || null, variant: product.variant || null, quantity: 1 }]);
   const checkoutCart = () => { const unavailable = cart.find((item) => !productPurchaseState(item, item.variant).canPurchase); if (unavailable) { window.alert(`${unavailable.name} is no longer available to purchase. Remove it or choose another option.`); return; } return requireCheckout(cart, { fromCart: true }); };
@@ -144,10 +146,9 @@ function App() {
   const selectHomepageCategory = (category) => {
     setHomepageCategorySelection((current) => ({ category, revision: current.revision + 1 }));
     setSearchQuery('');
-    navigate('products');
   };
-  return <><ScrollToTop page={page} pathname={location.pathname} navigationKey={navigationKey} />{showSplash && <LoadingScreen />}<SiteNavigationV2 page={page} setPage={navigate} cartCount={cart.reduce((sum, item) => sum + item.quantity, 0)} searchQuery={searchQuery} setSearchQuery={setSearchQuery} onProfileClick={openProfile} profileNavigationBusy={profileNavigationBusy} profileNavigationError={profileNavigationError} />{['home', 'products'].includes(page) && <ShopBannerCarousel />}<main>
-    {page === 'home' && <CategoryShowcase products={products} onSelectCategory={selectHomepageCategory} />}
+  return <><ScrollToTop page={page} pathname={location.pathname} navigationKey={navigationKey} />{showSplash && <LoadingScreen />}<SiteNavigationV2 page={page} setPage={navigate} cartCount={cart.reduce((sum, item) => sum + item.quantity, 0)} searchQuery={searchQuery} setSearchQuery={setSearchQuery} onProfileClick={openProfile} profileNavigationBusy={profileNavigationBusy} profileNavigationError={profileNavigationError} canGoBack={historyPosition > 0} canGoForward={historyPosition < historyForwardLimit} onHistoryBack={() => history.back()} onHistoryForward={() => history.forward()} />{['home', 'products'].includes(page) && <ShopBannerCarousel />}<main>
+    {page === 'home' && <CategoryShowcase products={products} selectedCategory={homepageCategorySelection.category} onSelectCategory={selectHomepageCategory} />}
     {['home', 'products'].includes(page) && <div id="products" className="scroll-section"><ProductsSection products={products} refresh={refresh} openProduct={openProduct} addToCart={addToCart} buyNow={buyNow} catalogueState={catalogueState} catalogueError={catalogueError} searchQuery={searchQuery} setSearchQuery={setSearchQuery} filterOpen={catalogueFiltersOpen} setFilterOpen={setCatalogueFiltersOpen} categorySelection={homepageCategorySelection} /></div>}
     {page === 'about' && <div id="about" className="scroll-section"><About /></div>}
     {page === 'gallery' && <GalleryPage />}
@@ -189,7 +190,7 @@ function SiteNavigation({ page, setPage, cartCount, searchQuery, setSearchQuery 
   const submitSearch = (event) => { event.preventDefault(); setSearchQuery(event.currentTarget.elements.search.value); setPage('products'); setOpen(false); setSearchOpen(false); };
   return <header className="site-header"><button className="brand" onClick={() => go('home')}><SafeImage src="/assets/heritage-emblem.png" alt="National Handicrafts emblem" /><span><b>National</b><small>Handicrafts Bengaluru</small></span></button><button className="menu-toggle" onClick={() => setOpen(!open)} aria-expanded={open}><span>{open ? 'Close' : 'Menu'}</span><i aria-hidden="true">{open ? '×' : 'Menu'}</i></button><nav className={open ? 'open' : ''} aria-label="Primary navigation">{[['home', 'Home'], ['products', 'Products'], ['about', 'About'], ['contact', 'Contact']].map(([id, label]) => <button className={page === id ? 'active' : ''} key={id} onClick={() => go(id)}>{label}</button>)}</nav><div className="header-actions"><button className="nav-icon-button" aria-label="Search products" aria-expanded={searchOpen} onClick={() => setSearchOpen((value) => !value)}><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" /><path d="m16 16 5 5" /></svg></button><button className={page === 'cart' ? 'nav-icon-button cart-icon active' : 'nav-icon-button cart-icon'} aria-label={`Shopping bag${cartCount > 0 ? `, ${cartCount} items` : ''}`} onClick={() => go('cart')}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8.5h14l-1 12H6l-1-12Z" /><path d="M9 9V7a3 3 0 0 1 6 0v2" /></svg>{cartCount > 0 && <span>{cartCount}</span>}</button></div>{searchOpen && <form className="header-search" onSubmit={submitSearch} role="search"><label htmlFor="header-product-search">Search products</label><input id="header-product-search" name="search" autoFocus value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search the catalogue" /><button className="button primary" type="submit">Search</button><button className="header-search-close" type="button" aria-label="Close search" onClick={() => setSearchOpen(false)}>×</button></form>}</header>;
 }
-function SiteNavigationV2({ page, setPage, cartCount, searchQuery, setSearchQuery, onProfileClick, profileNavigationBusy, profileNavigationError }) {
+function SiteNavigationV2({ page, setPage, cartCount, searchQuery, setSearchQuery, onProfileClick, profileNavigationBusy, profileNavigationError, canGoBack, canGoForward, onHistoryBack, onHistoryForward }) {
   const [open, setOpen] = useState(false);
   const [drawerTab, setDrawerTab] = useState('menu');
   const go = (nextPage) => { setPage(nextPage); setOpen(false); setDrawerTab('menu'); };
@@ -208,6 +209,10 @@ function SiteNavigationV2({ page, setPage, cartCount, searchQuery, setSearchQuer
       {open && <button className="mobile-drawer-backdrop" type="button" aria-label="Close navigation menu" onClick={closeDrawer} />}
       <button className="menu-toggle" type="button" onClick={() => { if (open) closeDrawer(); else { setDrawerTab('menu'); setOpen(true); } }} aria-label={open ? 'Close navigation menu' : 'Open navigation menu'} aria-expanded={open} aria-controls="primary-navigation"><i aria-hidden="true">{open ? '×' : <><span /><span /><span /></>}</i></button>
       <button className="brand" type="button" onClick={() => go('home')}><SafeImage src="/assets/heritage-emblem.png" alt="National Handicrafts emblem" /><span><b>National Handicrafts</b><small>Bengaluru</small></span></button>
+      <div className="header-history" aria-label="Browser navigation">
+        <button type="button" aria-label="Go back" title="Go back" disabled={!canGoBack} onClick={onHistoryBack}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18 9 12l6-6" /></svg></button>
+        <button type="button" aria-label="Go forward" title="Go forward" disabled={!canGoForward} onClick={onHistoryForward}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg></button>
+      </div>
       <form className="header-search" onSubmit={submitSearch} role="search"><label htmlFor="header-product-search">Search the catalogue</label><span className="header-search-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5" /><path d="m16 16 5 5" /></svg></span><input id="header-product-search" name="search" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Search for products, categories and more" /><button className="header-search-submit" type="submit" aria-label="Search catalogue"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" /><path d="m16 16 5 5" /></svg></button>{searchQuery && <button className="header-search-clear" type="button" aria-label="Clear search" onClick={() => setSearchQuery('')}>×</button>}</form>
       <nav id="primary-navigation" className={open ? 'open' : ''} aria-label="Primary navigation">
         <div className="premium-drawer">

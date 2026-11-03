@@ -88,9 +88,9 @@ export default function ProductsSection({ products, refresh, openProduct, addToC
   const applyFilters = () => { setFilters(draftFilters); setFilterOpen(false); };
   useEffect(() => { if (filterOpen) setDraftFilters(filters); }, [filterOpen]);
   useEffect(() => {
-    if (!categorySelection?.category) return;
-    setFilters((current) => ({ ...current, category: categorySelection.category }));
-    setDraftFilters((current) => ({ ...current, category: categorySelection.category }));
+    if (!categorySelection) return;
+    setFilters((current) => ({ ...current, category: categorySelection.category || '' }));
+    setDraftFilters((current) => ({ ...current, category: categorySelection.category || '' }));
   }, [categorySelection]);
   useEffect(() => {
     if (!filterOpen) return undefined;
@@ -111,9 +111,7 @@ export default function ProductsSection({ products, refresh, openProduct, addToC
 
   const closeFilters = () => { setDraftFilters(filters); setFilterOpen(false); };
   return <section className="section products-page">
-    <div className="catalogue-toolbar" aria-label="Product filters">
-    </div>
-    <div className="catalogue-results-bar"><p>{catalogueState === 'loading' ? 'Loading verified products…' : catalogueState === 'error' ? 'Catalogue temporarily unavailable' : invalidRange ? 'Choose a maximum price greater than the minimum.' : `Showing ${filtered.length} product${filtered.length === 1 ? '' : 's'}`}</p><button type="button" className={`catalogue-filter-trigger${activeFilterCount ? ' has-filters' : ''}`} aria-expanded={filterOpen} aria-controls="catalogue-filter-sheet" onClick={() => setFilterOpen(true)}><SlidersIcon /><span>Filter</span>{activeFilterCount > 0 && <small>{activeFilterCount}</small>}</button></div>
+    <div className="catalogue-results-bar"><p>{catalogueState === 'loading' ? 'Loading verified products…' : catalogueState === 'error' ? 'Catalogue temporarily unavailable' : invalidRange ? 'Choose a maximum price greater than the minimum.' : `Showing ${filtered.length} product${filtered.length === 1 ? '' : 's'}`}</p></div>
     <button type="button" className={`catalogue-filter-backdrop${filterOpen ? ' is-open' : ''}`} aria-label="Close filters" aria-hidden={!filterOpen} tabIndex={filterOpen ? 0 : -1} onClick={closeFilters} />
     <section id="catalogue-filter-sheet" className={`catalogue-filter-sheet${filterOpen ? ' is-open' : ''}`} role="dialog" aria-modal={filterOpen || undefined} aria-hidden={!filterOpen} inert={!filterOpen} aria-label="Filter and sort products"><div className="catalogue-filter-sheet-head"><div><p className="eyebrow">REFINE THE COLLECTION</p><h2>Filter &amp; sort</h2></div><button type="button" className="catalogue-filter-close" onClick={closeFilters} aria-label="Close filters">×</button></div><div className="catalogue-filter-sheet-controls"><FilterControls values={draftFilters} onChange={updateDraftFilter} /></div><div className="catalogue-filter-sheet-actions"><button className="catalogue-clear-all" type="button" onClick={clearFilters}>Clear All</button><button className="button primary" type="button" onClick={applyFilters}>Apply Filters</button></div></section>
     {catalogueState === 'loading' ? <CatalogueSkeleton /> : catalogueState === 'error' ? <ErrorState onRetry={refresh} message={catalogueError} /> : filtered.length ? <div className="product-grid">{filtered.map((product) => <ProductCard key={product.id} product={product} openProduct={openProduct} addToCart={addToCart} buyNow={buyNow} />)}</div> : <div className="verified-empty"><p>{hasCriteria ? 'No products match those choices.' : 'No matching verified products.'}</p><span>{hasCriteria ? 'Try clearing a filter or searching for another product.' : 'Product records added and verified in the admin portal appear here automatically.'}</span>{hasCriteria && <button className="text-button" type="button" onClick={() => { setSearchQuery(''); clearFilters(); }}>Clear search and filters</button>}</div>}

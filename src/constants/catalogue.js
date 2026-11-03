@@ -1,9 +1,9 @@
 export const CATEGORIES = ['Brass', 'Copper', 'Puja Articles', 'Dining & Thali Sets', 'Decorative Handicrafts'];
 
 export const CATEGORY_IMAGES = {
-  Brass: '/assets/open-vessel-reference.png',
-  Copper: '/assets/vessel-reference.png',
-  'Puja Articles': '/assets/open-vessel-reference.png',
-  'Dining & Thali Sets': '/assets/dining-reference.png',
-  'Decorative Handicrafts': '/assets/elephant-reference.png',
+  Brass: '/assets/hanging-brass-lanterns.png',
+  Copper: '/assets/image-placeholder.svg',
+  'Puja Articles': '/assets/image-placeholder.svg',
+  'Dining & Thali Sets': '/assets/image-placeholder.svg',
+  'Decorative Handicrafts': '/assets/elephant-design.png',
 };

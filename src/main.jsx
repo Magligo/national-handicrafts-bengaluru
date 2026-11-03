@@ -208,7 +208,7 @@ function SiteNavigationV2({ page, setPage, cartCount, searchQuery, setSearchQuer
     <header className="site-header">
       {open && <button className="mobile-drawer-backdrop" type="button" aria-label="Close navigation menu" onClick={closeDrawer} />}
       <button className="menu-toggle" type="button" onClick={() => { if (open) closeDrawer(); else { setDrawerTab('menu'); setOpen(true); } }} aria-label={open ? 'Close navigation menu' : 'Open navigation menu'} aria-expanded={open} aria-controls="primary-navigation"><i aria-hidden="true">{open ? '×' : <><span /><span /><span /></>}</i></button>
-      <button className="brand" type="button" onClick={() => go('home')}><SafeImage src="/assets/heritage-emblem.png" alt="National Handicrafts emblem" /><span><b>National Handicrafts</b><small>Bengaluru</small></span></button>
+      <button className="brand" type="button" onClick={() => go('home')}><SafeImage src="/assets/heritage-emblem.png" alt="National Handicrafts emblem" /><span><b>National</b></span></button>
       <div className="header-history" aria-label="Browser navigation">
         <button type="button" aria-label="Go back" title="Go back" disabled={!canGoBack} onClick={onHistoryBack}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18 9 12l6-6" /></svg></button>
         <button type="button" aria-label="Go forward" title="Go forward" disabled={!canGoForward} onClick={onHistoryForward}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg></button>
@@ -218,7 +218,7 @@ function SiteNavigationV2({ page, setPage, cartCount, searchQuery, setSearchQuer
         <div className="premium-drawer">
           <div className="drawer-top">
             <img src="/assets/heritage-emblem.png" alt="" />
-            <span className="drawer-brand-name"><strong>National Handicrafts</strong><small>Bengaluru</small></span>
+            <span className="drawer-brand-name"><strong>National</strong></span>
             <button type="button" className="drawer-close" aria-label="Close navigation menu" onClick={closeDrawer}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg></button>
           </div>
           <div className="drawer-account"><button type="button" onClick={() => { closeDrawer(); onProfileClick(); }} disabled={profileNavigationBusy}><span className="drawer-account-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.4" /><path d="M5.5 20c.8-3.4 3.1-5.1 6.5-5.1s5.7 1.7 6.5 5.1" /></svg></span><span className="drawer-account-copy"><strong>{profileNavigationBusy ? 'Checking account…' : page === 'admin' ? 'Admin portal' : page === 'profile' ? 'My account' : 'Login / Signup'}</strong><small>{page === 'admin' ? 'Manage your catalogue' : page === 'profile' ? 'View your account' : 'Access your orders, wishlist and more'}</small></span><span className="drawer-account-chevron" aria-hidden="true">›</span></button></div>

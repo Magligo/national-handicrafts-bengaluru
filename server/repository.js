@@ -55,6 +55,25 @@ async function lockProductsForItems(client, items) {
   return result.rows;
 }
 
+function calculateCouponDiscount(coupon, subtotal) {
+  if (coupon.discount_type === 'percentage') return Math.min(subtotal, Number(coupon.max_discount_inr ?? Infinity), Math.round(subtotal * Number(coupon.discount_value) / 100));
+  if (coupon.discount_type === 'fixed') return Math.min(subtotal, Number(coupon.discount_value));
+  return 0;
+}
+async function checkCouponEligibility(client, coupon, items, subtotal, customerId, email, { lock = false } = {}) {
+  if (!coupon.active) throw new Error('This coupon is inactive');
+  const now = Date.now(); if (coupon.starts_at && new Date(coupon.starts_at).getTime() > now) throw new Error('This coupon is not active yet'); if (coupon.expires_at && new Date(coupon.expires_at).getTime() <= now) throw new Error('This coupon has expired');
+  if (subtotal < Number(coupon.min_order_inr || 0)) throw new Error(`Minimum order value is ₹${coupon.min_order_inr}`);
+  let eligibleSubtotal=subtotal;
+  if (coupon.applicability === 'products') { const eligible=new Set(coupon.applicable_product_ids||[]); eligibleSubtotal=items.reduce((n,i)=>n+(eligible.has(i.productId)?i.unitPriceInr*i.quantity:0),0); if(!eligibleSubtotal) throw new Error('Cart does not contain eligible products'); }
+  if (coupon.applicability === 'categories') { const p=await client.query('SELECT id,category FROM products WHERE id=ANY($1::uuid[])', [items.map(i=>i.productId)]); const byId=new Map(p.rows.map(x=>[x.id,x.category])); const eligible=new Set(coupon.applicable_categories||[]); eligibleSubtotal=items.reduce((n,i)=>n+(eligible.has(byId.get(i.productId))?i.unitPriceInr*i.quantity:0),0); if(!eligibleSubtotal) throw new Error('Cart does not contain eligible categories'); }
+  const usage=await client.query('SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE ($2::uuid IS NOT NULL AND customer_id=$2) OR ($3::text IS NOT NULL AND customer_email=$3))::int AS customer_count FROM coupon_usages WHERE coupon_id=$1', [coupon.id,customerId||null,email?String(email).toLowerCase():null]);
+  if(coupon.total_usage_limit && usage.rows[0].total>=coupon.total_usage_limit) throw new Error('This coupon has reached its usage limit');
+  if(usage.rows[0].customer_count>=Number(coupon.per_customer_limit||1)) throw new Error('You have reached this coupon’s usage limit');
+  if(coupon.first_order_only && customerId) { const prior=await client.query("SELECT 1 FROM orders WHERE customer_id=$1 AND status<>'cancelled' LIMIT 1",[customerId]); if(prior.rowCount) throw new Error('This coupon is for first orders only'); }
+  return eligibleSubtotal;
+}
+
 async function restorePostgresOrderInventory(client, order) {
   if (order.inventory_restored_at) return false;
   const lines = restoreLinesFromOrder(order);
@@ -67,7 +86,7 @@ async function restorePostgresOrderInventory(client, order) {
 }
 
 export class MemoryRepository {
-  constructor(seed = {}) { this.products = [...(seed.products || [])]; this.shopBanners = [...(seed.shopBanners || [])]; this.galleryImages = [...(seed.galleryImages || [])]; this.orders = [...(seed.orders || [])]; this.adminUsers = [...(seed.adminUsers || [])]; this.customers = [...(seed.customers || [])]; this.addresses = [...(seed.addresses || [])]; this.orderLock = Promise.resolve(); }
+  constructor(seed = {}) { this.products = [...(seed.products || [])]; this.shopBanners = [...(seed.shopBanners || [])]; this.galleryImages = [...(seed.galleryImages || [])]; this.orders = [...(seed.orders || [])]; this.coupons = [...(seed.coupons || [])]; this.adminUsers = [...(seed.adminUsers || [])]; this.customers = [...(seed.customers || [])]; this.addresses = [...(seed.addresses || [])]; this.orderLock = Promise.resolve(); }
   async listShopBanners({ activeOnly = false } = {}) { return this.shopBanners.filter((banner) => !activeOnly || banner.active).sort((a, b) => Number(a.order_index) - Number(b.order_index) || new Date(a.created_at || 0) - new Date(b.created_at || 0)); }
   async listGalleryImages({ publishedOnly = false } = {}) { return this.galleryImages.filter((image) => !publishedOnly || image.published).sort((a, b) => Number(a.order_index) - Number(b.order_index) || new Date(a.created_at || 0) - new Date(b.created_at || 0) || String(a.id).localeCompare(String(b.id))); }
   async createGalleryImage(input) { const image = { id: randomUUID(), published: false, order_index: this.galleryImages.length, description: '', category: 'General', media_type: 'photo', ...input, image_url: input.image_url ?? input.media_url ?? null, media_url: input.media_url ?? input.image_url ?? null, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }; this.galleryImages.push(image); return image; }
@@ -87,6 +106,29 @@ export class MemoryRepository {
   async createProductIdempotently(input, key) { const existing = this.products.find((product) => product.creation_idempotency_key === key); if (existing) return { product: existing, duplicate: true }; const product = { id: randomUUID(), image_paths: [], image_public_ids: [], ...input, creation_idempotency_key: key, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }; this.products.push(product); return { product, duplicate: false }; }
   async updateProduct(id, input) { const p = await this.getProduct(id); if (!p) return null; Object.assign(p, input, { updated_at: new Date().toISOString() }); return p; }
   async deleteProduct(id) { const before = this.products.length; this.products = this.products.filter((p) => p.id !== id); return this.products.length < before; }
+  async listCoupons() { return [...(this.coupons || [])]; }
+  async createCoupon(input) { this.coupons ||= []; const coupon = { id: randomUUID(), active: true, ...input, code: String(input.code).trim().toUpperCase(), created_at: new Date().toISOString(), updated_at: new Date().toISOString() }; if (this.coupons.some((c) => c.code === coupon.code)) throw new Error('Coupon code already exists'); this.coupons.push(coupon); return coupon; }
+  async updateCoupon(id, input) { const c = (this.coupons || []).find((item) => item.id === id); if (!c) return null; Object.assign(c, input, { code: String(input.code || c.code).trim().toUpperCase(), updated_at: new Date().toISOString() }); return c; }
+  async deleteCoupon(id) { this.coupons ||= []; const before = this.coupons.length; this.coupons = this.coupons.filter((c) => c.id !== id); return this.coupons.length < before; }
+  async couponUsage(id) { return (this.orders || []).filter((o) => o.coupon_id === id || o.couponId === id).map((o) => ({ order_id: o.id, customer_id: o.customer_id, discount_inr: o.discount_inr, created_at: o.created_at })); }
+  async validateCoupon(code, requestedItems, customerId, email) {
+    const coupon = (this.coupons || []).find((c) => c.code === String(code).trim().toUpperCase());
+    if (!coupon) throw new Error('Coupon code is invalid');
+    if (!coupon.active) throw new Error('This coupon is inactive');
+    const now = Date.now(); if (coupon.starts_at && new Date(coupon.starts_at) > now) throw new Error('This coupon is not active yet'); if (coupon.expires_at && new Date(coupon.expires_at) <= now) throw new Error('This coupon has expired');
+    const items = buildOrderItems(this.products, requestedItems); const subtotal = items.reduce((s, i) => s + i.unitPriceInr * i.quantity, 0);
+    if (subtotal < Number(coupon.min_order_inr || 0)) throw new Error(`Minimum order value is ₹${coupon.min_order_inr}`);
+    let eligibleSubtotal=subtotal;
+    if (coupon.applicability === 'products') { eligibleSubtotal=items.reduce((s,i)=>s+(coupon.applicable_product_ids.includes(i.productId)?i.unitPriceInr*i.quantity:0),0); if(!eligibleSubtotal) throw new Error('Cart does not contain eligible products'); }
+    if (coupon.applicability === 'categories') { eligibleSubtotal=items.reduce((s,i)=>s+(coupon.applicable_categories.includes(this.products.find(p=>p.id===i.productId)?.category)?i.unitPriceInr*i.quantity:0),0); if(!eligibleSubtotal) throw new Error('Cart does not contain eligible categories'); }
+    const prior = this.orders.filter((o) => o.coupon_code === coupon.code);
+    if (coupon.total_usage_limit && prior.length >= coupon.total_usage_limit) throw new Error('This coupon has reached its usage limit');
+    if (coupon.first_order_only && this.orders.some((o) => String(o.customer_id) === String(customerId) && o.status !== 'cancelled')) throw new Error('This coupon is for first orders only');
+    const usedByCustomer = prior.filter((o) => (customerId && String(o.customer_id) === String(customerId)) || (email && String(o.customer?.email || '').toLowerCase() === String(email).toLowerCase())).length;
+    if (usedByCustomer >= Number(coupon.per_customer_limit || 1)) throw new Error('You have reached this coupon’s usage limit');
+    const discount = coupon.discount_type === 'percentage' ? Math.min(Math.round(eligibleSubtotal * Number(coupon.discount_value) / 100), coupon.max_discount_inr == null ? Infinity : Number(coupon.max_discount_inr)) : coupon.discount_type === 'fixed' ? Number(coupon.discount_value) : 0;
+    return { coupon, subtotal, discount_inr: Math.min(eligibleSubtotal, Math.max(0, discount)), shipping_inr: 0 };
+  }
   async findAdmin(email) { return this.adminUsers.find((u) => u.email.toLowerCase() === email.toLowerCase()) || null; }
   async findAdminById(id) { return this.adminUsers.find((u) => u.id === id) || null; }
   async updateAdminPassword(id, passwordHash) { const user = await this.findAdminById(id); if (!user) return null; user.password_hash = passwordHash; user.session_version = Number(user.session_version || 0) + 1; return user; }
@@ -100,13 +142,15 @@ export class MemoryRepository {
     return { order: saved, duplicate: false };
   }
   async createOrderWithInventory(order) {
-    const operation = this.orderLock.then(() => {
+    const operation = this.orderLock.then(async () => {
       const existing = order.idempotency_key && this.orders.find((item) => item.idempotency_key === order.idempotency_key);
       if (existing) return { order: existing, duplicate: true };
       const items = buildOrderItems(this.products, order.requestedItems);
       const subtotal = items.reduce((sum, item) => sum + item.unitPriceInr * item.quantity, 0);
+      let discount = 0; let coupon = null;
+      if (order.coupon_code) { const checked = await this.validateCoupon(order.coupon_code, order.requestedItems, order.customer_id, order.customer?.email); coupon = checked.coupon; discount = checked.discount_inr; }
       const { requestedItems: _requestedItems, ...orderFields } = order;
-      const saved = { id: `NH-${Date.now()}-${randomUUID().slice(0, 6)}`, shipping_inr: 0, ...orderFields, items, subtotal_inr: subtotal, total_inr: subtotal, inventory_restored_at: null, created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+      const saved = { id: `NH-${Date.now()}-${randomUUID().slice(0, 6)}`, shipping_inr: 0, ...orderFields, coupon_id: coupon?.id || null, coupon_code: coupon?.code || null, discount_inr: discount, items, subtotal_inr: subtotal, total_inr: Math.max(0, subtotal - discount), inventory_restored_at: null, created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
       for (const item of items) if (item.stockDeducted) {
         const product = this.products.find((candidate) => candidate.id === item.productId);
         if (item.variantId) {
@@ -161,6 +205,12 @@ export class PostgresRepository {
     this.pool.on('error', (error) => console.warn('[database] Idle pooled client failed', { code: error.code || 'unknown', name: error.name || 'Error' }));
   }
   async query(text, values) { return this.pool.query(text, values); }
+  async listCoupons() { return (await this.query('SELECT c.*,COUNT(u.id)::int AS usage_count FROM coupons c LEFT JOIN coupon_usages u ON u.coupon_id=c.id GROUP BY c.id ORDER BY c.created_at DESC')).rows; }
+  async createCoupon(input) { const r=await this.query(`INSERT INTO coupons(code,description,discount_type,discount_value,min_order_inr,max_discount_inr,total_usage_limit,per_customer_limit,starts_at,expires_at,first_order_only,applicability,applicable_product_ids,applicable_categories,active) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::uuid[],$14,$15) RETURNING *`,[String(input.code).trim().toUpperCase(),input.description||null,input.discount_type,input.discount_value,input.min_order_inr||0,input.max_discount_inr??null,input.total_usage_limit??null,input.per_customer_limit||1,input.starts_at||null,input.expires_at||null,Boolean(input.first_order_only),input.applicability||'all',input.applicable_product_ids||[],input.applicable_categories||[],input.active!==false]); return r.rows[0]; }
+  async updateCoupon(id,input) { const cols={code:'code',description:'description',discount_type:'discount_type',discount_value:'discount_value',min_order_inr:'min_order_inr',max_discount_inr:'max_discount_inr',total_usage_limit:'total_usage_limit',per_customer_limit:'per_customer_limit',starts_at:'starts_at',expires_at:'expires_at',first_order_only:'first_order_only',applicability:'applicability',applicable_product_ids:'applicable_product_ids',applicable_categories:'applicable_categories',active:'active'}; const keys=Object.keys(cols).filter(k=>input[k]!==undefined); if(!keys.length) return (await this.query('SELECT * FROM coupons WHERE id=$1',[id])).rows[0]||null; const set=keys.map((k,i)=>`${cols[k]}=$${i+1}${k==='applicable_product_ids'?'::uuid[]':''}`).join(','); const vals=keys.map(k=>k==='code'?String(input[k]).trim().toUpperCase():input[k]); const r=await this.query(`UPDATE coupons SET ${set},updated_at=NOW() WHERE id=$${keys.length+1} RETURNING *`,[...vals,id]); return r.rows[0]||null; }
+  async deleteCoupon(id) { return (await this.query('DELETE FROM coupons WHERE id=$1',[id])).rowCount>0; }
+  async couponUsage(id) { return (await this.query('SELECT order_id,customer_id,coupon_code,discount_inr,created_at FROM coupon_usages WHERE coupon_id=$1 ORDER BY created_at DESC',[id])).rows; }
+  async validateCoupon(code,requestedItems,customerId,email) { const c=await this.pool.connect(); try { await c.query('BEGIN'); const coupon=(await c.query('SELECT * FROM coupons WHERE code=$1',[String(code).trim().toUpperCase()])).rows[0]; if(!coupon) throw new Error('Coupon code is invalid'); const products=await lockProductsForItems(c,requestedItems||[]); const items=buildOrderItems(products,requestedItems||[]); const subtotal=items.reduce((s,i)=>s+i.unitPriceInr*i.quantity,0); const eligibleSubtotal=await checkCouponEligibility(c,coupon,items,subtotal,customerId,email); await c.query('ROLLBACK'); return {coupon,subtotal,discount_inr:calculateCouponDiscount(coupon,eligibleSubtotal),shipping_inr:0}; } catch(e) { await c.query('ROLLBACK'); throw e; } finally { c.release(); } }
   async listGalleryImages({ publishedOnly = false } = {}) { const result = await this.query(`SELECT * FROM gallery_images ${publishedOnly ? 'WHERE published = TRUE' : ''} ORDER BY order_index, created_at, id`); return result.rows; }
   async createGalleryImage(input) { const imageUrl = input.image_url ?? input.media_url ?? null; const mediaUrl = input.media_url ?? imageUrl; const result = await this.query('INSERT INTO gallery_images (image_url, media_type, media_url, thumbnail_url, thumbnail_storage_public_id, external_url, storage_public_id, title, description, category, published, order_index) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *', [imageUrl, input.media_type || 'photo', mediaUrl, input.thumbnail_url || null, input.thumbnail_storage_public_id || null, input.external_url || null, input.storage_public_id || null, input.title, input.description || '', input.category || 'General', input.published === true, Number(input.order_index) || 0]); return result.rows[0]; }
   async updateGalleryImage(id, input) { const fields = ['title', 'description', 'category', 'published', 'order_index', 'external_url', 'thumbnail_url'].filter((field) => input[field] !== undefined); if (!fields.length) return this.getGalleryImage(id); const sets = fields.map((field, index) => `${field}=$${index + 1}`).join(', '); const result = await this.query(`UPDATE gallery_images SET ${sets}, updated_at=NOW() WHERE id=$${fields.length + 1} RETURNING *`, [...fields.map((field) => input[field]), id]); return result.rows[0] || null; }
@@ -256,13 +306,17 @@ export class PostgresRepository {
       }
       const items = buildOrderItems(products, order.requestedItems);
       const subtotal = items.reduce((sum, item) => sum + item.unitPriceInr * item.quantity, 0);
-      const values = [order.customer_id || null, order.customer, JSON.stringify(items), subtotal, order.shipping_inr || 0, subtotal + Number(order.shipping_inr || 0), order.payment_method, order.payment_status, order.payment_reference, order.idempotency_key, order.status];
-      const inserted = await client.query('INSERT INTO orders (customer_id,customer,items,subtotal_inr,shipping_inr,total_inr,payment_method,payment_status,payment_reference,idempotency_key,status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (idempotency_key) DO NOTHING RETURNING *', values);
+      let coupon=null; let discount=0;
+      if(order.coupon_code) { coupon=(await client.query('SELECT * FROM coupons WHERE code=$1 FOR UPDATE',[String(order.coupon_code).trim().toUpperCase()])).rows[0]; if(!coupon) throw new Error('Coupon code is invalid'); const eligibleSubtotal=await checkCouponEligibility(client,coupon,items,subtotal,order.customer_id,order.customer?.email); discount=calculateCouponDiscount(coupon,eligibleSubtotal); }
+      const total=Math.max(0,subtotal-discount+Number(order.shipping_inr||0));
+      const values = [order.customer_id || null, order.customer, JSON.stringify(items), subtotal, order.shipping_inr || 0, total, order.payment_method, order.payment_status, order.payment_reference, order.idempotency_key, order.status,coupon?.id||null,coupon?.code||null,discount];
+      const inserted = await client.query('INSERT INTO orders (customer_id,customer,items,subtotal_inr,shipping_inr,total_inr,payment_method,payment_status,payment_reference,idempotency_key,status,coupon_id,coupon_code,discount_inr) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT (idempotency_key) DO NOTHING RETURNING *', values);
       if (!inserted.rows[0]) {
         const existing = await client.query('SELECT * FROM orders WHERE idempotency_key=$1', [order.idempotency_key]);
         if (existing.rows[0]) { await client.query('ROLLBACK'); return { order: existing.rows[0], duplicate: true }; }
         throw new Error('The order could not be saved. Please retry with the same request key.');
       }
+      if(coupon) await client.query('INSERT INTO coupon_usages(coupon_id,customer_id,customer_email,order_id,coupon_code,discount_inr) VALUES($1,$2,$3,$4,$5,$6)',[coupon.id,order.customer_id||null,String(order.customer?.email||'').toLowerCase()||null,inserted.rows[0].id,coupon.code,discount]);
       await changeLockedInventory(client, products, items, -1);
       await client.query('COMMIT');
       return { order: inserted.rows[0], duplicate: false };

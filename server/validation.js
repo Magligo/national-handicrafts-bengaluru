@@ -97,6 +97,32 @@ function validEmail(value) { return /^\S+@\S+\.\S+$/.test(String(value || '').tr
 export function validateCustomerPassword(password) { const value = String(password || ''); if (value.length < 8 || value.length > 200) throw new Error('Password must be between 8 and 200 characters'); return value; }
 export function customerRegistrationInput(body = {}) { const email = String(body.email || '').trim().toLowerCase(); const password = validateCustomerPassword(body.password); const name = optionalText(body.name, 160); if (!name) throw new Error('Full name is required'); if (!validEmail(email)) throw new Error('A valid email is required'); return { name, email, password }; }
 export function adminPasswordChangeInput(body = {}) { const currentPassword = String(body.currentPassword || ''); const newPassword = String(body.newPassword || ''); if (!currentPassword) throw new Error('Current password is required'); if (newPassword.length < 8 || newPassword.length > 200) throw new Error('New password must be between 8 and 200 characters'); return { currentPassword, newPassword }; }
+
+export function couponInput(body = {}, { partial = false } = {}) {
+  const out={}; const text=(v,max)=>String(v||'').trim().slice(0,max);
+  if(!partial||body.code!==undefined) { out.code=text(body.code,40).toUpperCase(); if(!/^[A-Z0-9][A-Z0-9_-]{2,39}$/.test(out.code)) throw new Error('Coupon code must be 3–40 letters, numbers, hyphens or underscores'); }
+  for(const [key,min,max] of [['discount_value',0,10000000],['min_order_inr',0,100000000],['max_discount_inr',0,100000000],['total_usage_limit',1,100000000],['per_customer_limit',1,100000]]) if(body[key]!==undefined || (!partial && key==='discount_value')) { const val=body[key]===''||body[key]==null?null:Number(body[key]); if(val!==null&&(!Number.isFinite(val)||val<min||val>max)) throw new Error(`Invalid ${key.replaceAll('_',' ')}`); out[key]=val; }
+  for(const key of ['description','discount_type','starts_at','expires_at','applicability']) if(body[key]!==undefined || (!partial&&['discount_type','applicability'].includes(key))) out[key]=body[key] == null ? null : text(body[key],key==='description'?500:80);
+  if(out.discount_type&&!['percentage','fixed','free_delivery'].includes(out.discount_type)) throw new Error('Choose a supported discount type');
+  if(out.discount_type==='free_delivery'&&out.discount_value==null) out.discount_value=0;
+  if(out.discount_type==='percentage'&&out.discount_value>100) throw new Error('Percentage discount cannot exceed 100');
+  if(out.discount_type==='fixed'&&out.discount_value!=null&&!Number.isInteger(out.discount_value)) throw new Error('Fixed discounts must use whole rupees');
+  for(const key of ['min_order_inr','max_discount_inr','total_usage_limit','per_customer_limit']) if(out[key]!=null&&!Number.isInteger(out[key])) throw new Error(`${key.replaceAll('_',' ')} must be a whole number`);
+  if(out.applicability&&!['all','products','categories'].includes(out.applicability)) throw new Error('Choose a supported applicability rule');
+  if(body.first_order_only!==undefined) out.first_order_only=body.first_order_only===true;
+  if(body.active!==undefined) out.active=body.active===true;
+  if(body.applicable_product_ids!==undefined) out.applicable_product_ids=Array.isArray(body.applicable_product_ids)?body.applicable_product_ids:[];
+  if(body.applicable_categories!==undefined) out.applicable_categories=Array.isArray(body.applicable_categories)?body.applicable_categories.map(x=>text(x,100)):[];
+  if(!partial && out.applicability==='products'&&!out.applicable_product_ids?.length) throw new Error('Choose at least one eligible product');
+  if(!partial && out.applicability==='categories'&&!out.applicable_categories?.length) throw new Error('Choose at least one eligible category');
+  if(out.applicability==='products'&&body.applicable_product_ids!==undefined&&!out.applicable_product_ids.length) throw new Error('Choose at least one eligible product');
+  if(out.applicability==='categories'&&body.applicable_categories!==undefined&&!out.applicable_categories.length) throw new Error('Choose at least one eligible category');
+  if(out.starts_at&&!Number.isFinite(new Date(out.starts_at).getTime())) throw new Error('Start date is invalid');
+  if(out.expires_at&&!Number.isFinite(new Date(out.expires_at).getTime())) throw new Error('Expiry date is invalid');
+  if(!partial && out.discount_value==null && out.discount_type!=='free_delivery') throw new Error('Discount value is required');
+  if(out.starts_at&&out.expires_at&&new Date(out.expires_at)<=new Date(out.starts_at)) throw new Error('Expiry must be after the start date');
+  return out;
+}
 export function customerProfileInput(body = {}) { const value = {}; if (body.name !== undefined) value.name = optionalText(body.name, 160); if (body.phone !== undefined) { const phone = optionalText(body.phone, 30); if (phone && !/^\+?[0-9 ()-]{7,20}$/.test(phone)) throw new Error('A valid mobile number is required'); value.phone = phone || null; } if (body.address !== undefined) value.address = optionalText(body.address, 500) || null; if (body.city !== undefined) value.city = optionalText(body.city, 100) || null; if (body.state !== undefined) value.state = optionalText(body.state, 100) || null; if (body.pin !== undefined) { const pin = optionalText(body.pin, 6); if (pin && !/^\d{6}$/.test(pin)) throw new Error('A valid 6-digit PIN code is required'); value.pin = pin || null; } if (body.name !== undefined && !value.name) throw new Error('Full name is required'); return value; }
 export function addressInput(body = {}) { const value = { label: optionalText(body.label, 60), recipient_name: optionalText(body.recipientName ?? body.recipient_name, 160), phone: optionalText(body.phone, 30), address: optionalText(body.address, 500), city: optionalText(body.city, 100), state: optionalText(body.state, 100), pin: optionalText(body.pin, 6), is_default: body.isDefault === true || body.is_default === true }; if (!value.label || !value.recipient_name || !value.phone || !value.address || !value.city || !value.state || !/^\+?[0-9 ()-]{7,20}$/.test(value.phone) || !/^\d{6}$/.test(value.pin)) throw new Error('Complete address details are required'); return value; }
 export { categories, statuses, orderStatuses, availabilityValues, paymentMethods };

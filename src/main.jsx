@@ -371,16 +371,19 @@ function Checkout({ setPage, items, clearCart, isCart = false }) {
   const [customer, setCustomer] = useState({ name: '', phone: '', email: '', houseStreet: '', locality: '', city: '', state: '', pin: '', landmark: '' });
   const [status, setStatus] = useState({ type: 'idle', message: '' });
   const [order, setOrder] = useState(null);
+  const [couponCode,setCouponCode]=useState(''); const [appliedCoupon,setAppliedCoupon]=useState(null); const [couponStatus,setCouponStatus]=useState({type:'idle',message:''});
   const submissionInFlight = useRef(false);
   const idempotencyKey = useRef(null);
   const subtotal = items.some((item) => item.price_inr == null)
     ? null
     : items.reduce((sum, item) => sum + Number(item.price_inr) * item.quantity, 0);
+  const payable=appliedCoupon?Math.max(0,Number(appliedCoupon.total_inr)):subtotal;
+  const applyCoupon=async()=>{if(!couponCode.trim())return;setCouponStatus({type:'loading',message:''});try{const result=await api('/coupons/validate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:couponCode.trim().toUpperCase(),email:customer.email,items:items.map(item=>({id:item.id,variantId:item.variantId||null,quantity:item.quantity}))})});setAppliedCoupon(result.data);setCouponCode(result.data.code);setCouponStatus({type:'success',message:`${result.data.code} applied. You save ${formatPrice(result.data.discount_inr)}.`});}catch(error){setAppliedCoupon(null);setCouponStatus({type:'error',message:error.message});}};
   const update = (key, value) => setCustomer((current) => ({ ...current, [key]: value }));
   const submit = async (event) => {
     event.preventDefault();
     if (!items.length || submissionInFlight.current) return;
-    if (!window.confirm(`Place this Cash on Delivery order for ${formatPrice(subtotal)}?`)) return;
+    if (!window.confirm(`Place this Cash on Delivery order for ${formatPrice(payable)}?`)) return;
     submissionInFlight.current = true;
     setStatus({ type: 'submitting', message: '' });
     idempotencyKey.current ||= crypto.randomUUID();
@@ -390,7 +393,7 @@ function Checkout({ setPage, items, clearCart, isCart = false }) {
       const response = await api('/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey.current },
-        body: JSON.stringify({ customer: orderCustomer, paymentMethod: 'COD', items: items.map((item) => ({ id: item.id, variantId: item.variantId || null, quantity: item.quantity })) }),
+        body: JSON.stringify({ customer: orderCustomer, paymentMethod: 'COD', couponCode: appliedCoupon?.code || null, items: items.map((item) => ({ id: item.id, variantId: item.variantId || null, quantity: item.quantity })) }),
       });
       setOrder(response.data);
       if (isCart) clearCart?.();
@@ -412,7 +415,8 @@ function Checkout({ setPage, items, clearCart, isCart = false }) {
           <SafeImage src={imageUrl(item.image_path) || categoryImages[item.category]} alt={item.name} />
           <div><strong>{item.name}</strong>{item.variant && <span>{[item.variant.name, item.variant.size, item.variant.weight != null ? `${item.variant.weight} ${item.variant.weightUnit || ''}` : ''].filter(Boolean).join(' · ')}</span>}<span>{formatPrice(item.price_inr)} each | Quantity {item.quantity}</span><b>{item.price_inr == null ? 'Price on request' : formatPrice(Number(item.price_inr) * item.quantity)}</b></div>
         </div>)}
-        <div className="summary-total"><span>Total</span><strong>{formatPrice(subtotal)}</strong></div>
+        <div className="checkout-coupon"><h3>Have a coupon code?</h3>{appliedCoupon?<div className="checkout-coupon-applied"><span><strong>{appliedCoupon.code}</strong><small>{couponStatus.message}</small></span><button type="button" className="text-button" onClick={()=>{setAppliedCoupon(null);setCouponStatus({type:'idle',message:''});setCouponCode('');}}>Remove</button></div>:<div className="checkout-coupon-row"><input aria-label="Coupon code" placeholder="Enter coupon code" value={couponCode} onChange={e=>setCouponCode(e.target.value.toUpperCase())} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();applyCoupon();}}}/><button type="button" className="button secondary" disabled={couponStatus.type==='loading'||!couponCode.trim()} onClick={applyCoupon}>{couponStatus.type==='loading'?'Checking…':'Apply'}</button></div>}{couponStatus.type==='error'&&<p className="form-error" role="alert">{couponStatus.message}</p>}</div>
+        <div className="checkout-price-lines"><div><span>Subtotal</span><strong>{formatPrice(subtotal)}</strong></div>{appliedCoupon&&<div><span>Discount · {appliedCoupon.code}</span><strong>−{formatPrice(appliedCoupon.discount_inr)}</strong></div>}<div><span>Delivery</span><strong>{formatPrice(0)}</strong></div><div className="summary-total"><span>Final total</span><strong>{formatPrice(payable)}</strong></div></div>
         <p className="fine-print">The server verifies current catalogue prices and stock before creating your order.</p>
       </div>
       <form className="checkout-form checkout-details" onSubmit={submit}>

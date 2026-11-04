@@ -100,11 +100,13 @@ export function adminPasswordChangeInput(body = {}) { const currentPassword = St
 
 export function couponInput(body = {}, { partial = false } = {}) {
   const out={}; const text=(v,max)=>String(v||'').trim().slice(0,max);
+  if(!partial&&!body.discount_type) throw new Error('Discount type is required');
   if(!partial||body.code!==undefined) { out.code=text(body.code,40).toUpperCase(); if(!/^[A-Z0-9][A-Z0-9_-]{2,39}$/.test(out.code)) throw new Error('Coupon code must be 3–40 letters, numbers, hyphens or underscores'); }
   for(const [key,min,max] of [['discount_value',0,10000000],['min_order_inr',0,100000000],['max_discount_inr',0,100000000],['total_usage_limit',1,100000000],['per_customer_limit',1,100000]]) if(body[key]!==undefined || (!partial && key==='discount_value')) { const val=body[key]===''||body[key]==null?null:Number(body[key]); if(val!==null&&(!Number.isFinite(val)||val<min||val>max)) throw new Error(`Invalid ${key.replaceAll('_',' ')}`); out[key]=val; }
   for(const key of ['description','discount_type','starts_at','expires_at','applicability']) if(body[key]!==undefined || (!partial&&['discount_type','applicability'].includes(key))) out[key]=body[key] == null ? null : text(body[key],key==='description'?500:80);
   if(out.discount_type&&!['percentage','fixed','free_delivery'].includes(out.discount_type)) throw new Error('Choose a supported discount type');
-  if(out.discount_type==='free_delivery'&&out.discount_value==null) out.discount_value=0;
+  if(out.discount_type==='free_delivery') out.discount_value=0;
+  if(['percentage','fixed'].includes(out.discount_type)&&out.discount_value===0) throw new Error('Discount value must be greater than zero');
   if(out.discount_type==='percentage'&&out.discount_value>100) throw new Error('Percentage discount cannot exceed 100');
   if(out.discount_type==='fixed'&&out.discount_value!=null&&!Number.isInteger(out.discount_value)) throw new Error('Fixed discounts must use whole rupees');
   for(const key of ['min_order_inr','max_discount_inr','total_usage_limit','per_customer_limit']) if(out[key]!=null&&!Number.isInteger(out[key])) throw new Error(`${key.replaceAll('_',' ')} must be a whole number`);

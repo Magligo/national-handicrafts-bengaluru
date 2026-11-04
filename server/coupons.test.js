@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import request from 'supertest';
+import bcrypt from 'bcryptjs';
 import { createApp } from './app.js';
 import { MemoryRepository } from './repository.js';
+import { couponInput } from './validation.js';
 
 const product={id:'p1',name:'Brass Bowl',category:'Brass',price_inr:5000,availability:'available',stock:20,active:true,verification_status:'verified',variants:[]};
 function repo(seed={}) { return new MemoryRepository({products:[product],...seed}); }
@@ -63,7 +65,7 @@ test('failed and duplicate checkout attempts do not consume coupon usage; concur
 });
 
 test('coupon management is admin-only and customer validation ignores a forged discount amount',async()=>{
- const r=repo(); const coupon=await r.createCoupon(offer('SAFE'));
+ const r=repo({adminUsers:[{id:'admin-1',email:'admin@test.local',password_hash:await bcrypt.hash('correct horse battery staple',4),role:'admin'}]}); const coupon=await r.createCoupon(offer('SAFE'));
  const {app}=createApp({repo:r,secret:'coupon-test-secret'});
  const unauthorized=await request(app).get('/api/admin/coupons');
  assert.equal(unauthorized.status,401);
@@ -71,4 +73,29 @@ test('coupon management is admin-only and customer validation ignores a forged d
  assert.equal(customer.status,201);
  const preview=await request(app).post('/api/coupons/validate').set('Cookie',customer.headers['set-cookie']).send({code:coupon.code,items:item,discount_inr:4999,total_inr:1});
  assert.equal(preview.status,200); assert.equal(preview.body.data.discount_inr,500); assert.equal(preview.body.data.total_inr,4500);
+ const address={name:'Test Buyer',email:'buyer@test.local',phone:'9876543210',address:'12 Market Road, Central Bengaluru',houseStreet:'12 Market Road',locality:'Central Bengaluru',city:'Bengaluru',state:'Karnataka',pin:'560001'};
+ const place=()=>request(app).post('/api/orders').set('Cookie',customer.headers['set-cookie']).set('Idempotency-Key','coupon-order-one').send({customer:address,paymentMethod:'COD',couponCode:' safe ',items:item,discount_inr:1,total_inr:1});
+ const order=await place(); assert.equal(order.status,201); assert.equal(order.body.data.subtotal_inr,5000); assert.equal(order.body.data.discount_inr,500); assert.equal(order.body.data.total_inr,4500); assert.equal(order.body.data.coupon_code,'SAFE'); assert.equal(order.body.data.payment_method,'COD');
+ const duplicateOrder=await place(); assert.equal(duplicateOrder.status,200); assert.equal(duplicateOrder.body.duplicate,true); assert.equal(r.orders.filter(o=>o.coupon_code==='SAFE').length,1);
+ const customerCannotCreate=await request(app).post('/api/admin/coupons').set('Cookie',customer.headers['set-cookie']).send(offer('DENIED'));
+ assert.equal(customerCannotCreate.status,401);
+ const adminLogin=await request(app).post('/api/auth/login').send({email:'admin@test.local',password:'correct horse battery staple'});
+ assert.equal(adminLogin.status,200); const cookies=adminLogin.headers['set-cookie'];
+ const csrf=await request(app).get('/api/auth/csrf').set('Cookie',cookies); assert.equal(csrf.status,200);
+ const adminReq=(method,path)=>request(app)[method](path).set('Cookie',cookies).set('X-CSRF-Token',csrf.body.data.token);
+ const create=await adminReq('post','/api/admin/coupons').send(offer('NEW',{description:'New coupon'})); assert.equal(create.status,201);
+ const duplicate=await adminReq('post','/api/admin/coupons').send(offer('new')); assert.equal(duplicate.status,409);
+ const update=await adminReq('patch',`/api/admin/coupons/${create.body.data.id}`).send({active:false}); assert.equal(update.status,200); assert.equal(update.body.data.active,false);
+ const usage=await request(app).get(`/api/admin/coupons/${create.body.data.id}/usage`).set('Cookie',cookies); assert.equal(usage.status,200); assert.deepEqual(usage.body.data,[]);
+ const orderList=await request(app).get('/api/admin/orders').set('Cookie',cookies); assert.equal(orderList.body.data[0].coupon_code,'SAFE'); assert.equal(orderList.body.data[0].discount_inr,500);
+ const statusUpdate=await adminReq('patch',`/api/admin/orders/${order.body.data.id}/status`).send({status:'confirmed'}); assert.equal(statusUpdate.status,200); assert.equal(statusUpdate.body.data.discount_inr,500);
+ const remove=await adminReq('delete',`/api/admin/coupons/${create.body.data.id}`); assert.equal(remove.status,204);
+});
+
+test('coupon configuration rejects missing and zero discounts, negative amounts and invalid ranges',()=>{
+ assert.throws(()=>couponInput({code:'EMPTY',discount_type:'percentage',discount_value:0}),/greater than zero/i);
+ assert.throws(()=>couponInput({code:'NEG',discount_type:'fixed',discount_value:-1}),/Invalid discount value/i);
+ assert.throws(()=>couponInput({code:'PCT',discount_type:'percentage',discount_value:101}),/cannot exceed 100/i);
+ assert.throws(()=>couponInput({code:'RANGE',discount_type:'fixed',discount_value:10,starts_at:'2026-12-01T00:00:00Z',expires_at:'2026-11-01T00:00:00Z'}),/Expiry must be after/i);
+ assert.throws(()=>couponInput({code:'TYPE'}),/Discount type is required/i);
 });

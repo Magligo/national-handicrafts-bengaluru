@@ -7,20 +7,26 @@ import { MemoryRepository } from './repository.js';
 import { couponInput } from './validation.js';
 
 const product={id:'p1',name:'Brass Bowl',category:'Brass',price_inr:5000,availability:'available',stock:20,active:true,verification_status:'verified',variants:[]};
-function repo(seed={}) { return new MemoryRepository({products:[product],...seed}); }
+function repo(seed={}) { return new MemoryRepository({products:[{...product}],...seed}); }
 const item=[{id:'p1',quantity:1}];
 const offer=(code,extra={})=>({code,discount_type:'percentage',discount_value:10,min_order_inr:0,per_customer_limit:2,applicability:'all',active:true,...extra});
 
 test('coupon discounts enforce percentage, fixed amount, cap, floor, time and status rules',async()=>{
  const r=repo();
- const percent=await r.createCoupon(offer('TEN'));
- assert.equal((await r.validateCoupon('ten',item,'c1')).discount_inr,500);
+ const percent=await r.createCoupon(offer('TEN',{max_discount_inr:1000}));
+ const exampleA=await r.validateCoupon(' ten ',item,'c1'); assert.equal(exampleA.discount_inr,500); assert.equal(exampleA.subtotal-exampleA.discount_inr,4500);
+ const highCart=repo(); highCart.products[0].price_inr=20000;
+ const exampleBcoupon=await highCart.createCoupon(offer('TWENTY',{discount_value:20,max_discount_inr:1000}));
+ const exampleB=await highCart.validateCoupon(exampleBcoupon.code,item,'c1'); assert.equal(exampleB.discount_inr,1000); assert.equal(exampleB.subtotal-exampleB.discount_inr,19000);
+ r.products[0].price_inr=3000;
  const fixed=await r.createCoupon(offer('FIX',{discount_type:'fixed',discount_value:200}));
- assert.equal((await r.validateCoupon(fixed.code,item,'c1')).discount_inr,200);
+ const exampleC=await r.validateCoupon(fixed.code,item,'c1'); assert.equal(exampleC.discount_inr,200); assert.equal(exampleC.subtotal-exampleC.discount_inr,2800);
  const capped=await r.createCoupon(offer('CAP',{max_discount_inr:100}));
  assert.equal((await r.validateCoupon(capped.code,item,'c1')).discount_inr,100);
- const minimum=await r.createCoupon(offer('MIN',{min_order_inr:6000}));
+ const minimum=await r.createCoupon(offer('MIN',{min_order_inr:2000}));
+ r.products[0].price_inr=1500;
  await assert.rejects(r.validateCoupon(minimum.code,item,'c1'),/Minimum order/);
+ const tooLarge=await r.createCoupon(offer('LARGE',{discount_type:'fixed',discount_value:20000})); const exampleE=await r.validateCoupon(tooLarge.code,item,'c1'); assert.equal(exampleE.discount_inr,1500); assert.equal(Math.max(0,exampleE.subtotal-exampleE.discount_inr),0);
  const expired=await r.createCoupon(offer('OLD',{expires_at:'2020-01-01T00:00:00Z'}));
  await assert.rejects(r.validateCoupon(expired.code,item,'c1'),/expired/i);
  const inactive=await r.createCoupon(offer('OFF',{active:false}));

@@ -2295,6 +2295,9 @@ body.home-route .shop-banner-wrap,body.home-route .shop-banner,body.home-route .
 .site-footer{grid-template-columns:1.3fr .7fr 1.15fr 1fr}
 .footer-contact>a{display:flex;align-items:flex-start;gap:.65rem;margin:.7rem 0;color:#d9c7b4;text-decoration:none;line-height:1.5;overflow-wrap:anywhere;transition:color .2s ease}
 .footer-contact>a:hover{color:#fff8ed}
+.footer-contact .footer-location{margin:.7rem 0;color:#d9c7b4;line-height:1.5}
+.contact-method>span>span>a{color:var(--terracotta);text-decoration:underline;text-underline-offset:3px}
+.contact-method>span>span>a:hover{color:var(--ink)}
 .footer-contact svg{width:18px;height:18px;flex:0 0 18px;margin-top:.15rem;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 @media(max-width:1000px){.site-footer{grid-template-columns:repeat(2,minmax(0,1fr))}.site-footer>div:last-child{grid-column:auto}}
 @media(max-width:540px){.contact-methods{grid-template-columns:1fr;gap:.7rem}.get-in-touch{margin-top:2rem;padding-top:1.5rem}.site-footer{grid-template-columns:1fr}.site-footer>div:last-child{grid-column:auto}.footer-contact>a{max-width:100%}}
